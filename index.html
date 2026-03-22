@@ -39,41 +39,41 @@ window.signIn = async () => {
     const email  = result.user.email;
     if (!email.endsWith("@smail.iitm.ac.in") && !email.endsWith("@iitm.ac.in")) {
       await signOut(auth);
-      showToast("❌ Only IITM emails allowed!", "error");
+      window.showToast("❌ Only IITM emails allowed!", "error");
       return;
     }
     if (!result.user.displayName) {
-      openNamePrompt(email);
+      window.openNamePrompt(email);
     } else {
       const name = result.user.displayName.split(" ")[0];
-      showToast("✅ Hi " + name + "! Welcome 👋");
+      window.showToast("✅ Hi " + name + "! Welcome 👋");
     }
   } catch (e) {
     if (e.code === "auth/popup-closed-by-user" || e.code === "auth/cancelled-popup-request") return;
     console.error(e);
-    showToast("Login failed. Try again.", "error");
+    window.showToast("Login failed. Try again.", "error");
   }
 };
  
 window.signOutUser = async () => {
   await signOut(auth);
   localStorage.removeItem("iitm_bazaar_nickname");
-  showToast("👋 Logged out");
+  window.showToast("👋 Logged out");
 };
  
 onAuthStateChanged(auth, user => {
   window._currentUser = user;
-  updateAuthUI(user);
+  window.updateAuthUI(user);
 });
  
-function getDisplayName(user) {
+window.getDisplayName = function(user) {
   if (!user) return "";
   return localStorage.getItem("iitm_bazaar_nickname")
     || (user.displayName && user.displayName.split(" ")[0])
     || user.email.split("@")[0];
 }
  
-function updateAuthUI(user) {
+window.updateAuthUI = function(user) {
   const loginBtn  = document.getElementById("loginBtn");
   const logoutBtn = document.getElementById("logoutBtn");
   const userName  = document.getElementById("userName");
@@ -81,7 +81,7 @@ function updateAuthUI(user) {
   const rentBtn   = document.getElementById("postRentBtn");
  
   if (user) {
-    const name = getDisplayName(user);
+    const name = window.getDisplayName(user);
     loginBtn.style.display  = "none";
     logoutBtn.style.display = "flex";
     userName.style.display  = "flex";
@@ -98,7 +98,7 @@ function updateAuthUI(user) {
 }
  
 // ── NAME PROMPT ───────────────────────────────────────────────────────────────
-function openNamePrompt(email) {
+window.openNamePrompt = function(email) {
   document.getElementById("namePromptOverlay").classList.add("open");
   document.getElementById("nameInput").value = email.split("@")[0];
   document.getElementById("nameInput").select();
@@ -106,11 +106,11 @@ function openNamePrompt(email) {
  
 window.saveName = () => {
   const val = document.getElementById("nameInput").value.trim();
-  if (!val) { showToast("Please enter your name!", "error"); return; }
+  if (!val) { window.showToast("Please enter your name!", "error"); return; }
   localStorage.setItem("iitm_bazaar_nickname", val);
   document.getElementById("namePromptOverlay").classList.remove("open");
-  updateAuthUI(window._currentUser);
-  showToast("✅ Hi " + val + "! Welcome 👋");
+  window.updateAuthUI(window._currentUser);
+  window.showToast("✅ Hi " + val + "! Welcome 👋");
 };
  
 // ── CLOUDINARY UPLOAD HELPER ──────────────────────────────────────────────────
@@ -134,7 +134,7 @@ onSnapshot(query(listingsRef, orderBy("createdAt", "desc")), snapshot => {
  
 window.postItem = async () => {
   const user = window._currentUser;
-  if (!user) { showToast("🔐 Log in with IITM email first!", "error"); return; }
+  if (!user) { window.showToast("🔐 Log in with IITM email first!", "error"); return; }
  
   const title  = document.getElementById("fTitle").value.trim();
   const price  = document.getElementById("fPrice").value;
@@ -145,8 +145,8 @@ window.postItem = async () => {
   const phone  = document.getElementById("fPhone").value.replace(/\D/g, "");
   const file   = document.getElementById("fImage").files[0];
  
-  if (!title || !price || !desc || !phone) { showToast("Fill in all required fields!", "error"); return; }
-  if (phone.length < 10) { showToast("Enter valid phone number!", "error"); return; }
+  if (!title || !price || !desc || !phone) { window.showToast("Fill in all required fields!", "error"); return; }
+  if (phone.length < 10) { window.showToast("Enter valid phone number!", "error"); return; }
  
   const btn = document.getElementById("submitBtn");
   btn.disabled = true; btn.textContent = "Posting…";
@@ -157,16 +157,16 @@ window.postItem = async () => {
       title, price: Number(price), cat,
       emoji: window._selectedEmoji || "📦",
       desc, hostel, cond, phone, imageUrl,
-      sellerName: getDisplayName(user),
+      sellerName: window.getDisplayName(user),
       sellerEmail: user.email, sellerUid: user.uid,
       createdAt: serverTimestamp()
     });
     ["fTitle","fPrice","fDesc","fPhone"].forEach(id => document.getElementById(id).value = "");
     document.getElementById("fImage").value = "";
     document.getElementById("imagePreview").style.display = "none";
-    closePost();
-    showToast("🎉 Item posted!");
-  } catch (e) { console.error(e); showToast("Failed to post. Try again.", "error"); }
+    window.closePost();
+    window.showToast("🎉 Item posted!");
+  } catch (e) { console.error(e); window.showToast("Failed to post. Try again.", "error"); }
  
   btn.disabled = false; btn.textContent = "🚀 Post Item";
 };
@@ -175,8 +175,8 @@ window.deleteListing = async (id) => {
   if (!confirm("Remove this listing?")) return;
   try {
     await deleteDoc(doc(db, "listings", id));
-    closeDetail(); showToast("🗑 Listing removed");
-  } catch(e) { showToast("Couldn't delete. Try again.", "error"); }
+    window.closeDetail(); window.showToast("🗑 Listing removed");
+  } catch(e) { window.showToast("Couldn't delete. Try again.", "error"); }
 };
  
 // ── RENTAL LISTINGS ───────────────────────────────────────────────────────────
@@ -188,7 +188,7 @@ onSnapshot(query(rentalsRef, orderBy("createdAt", "desc")), snapshot => {
  
 window.postRental = async () => {
   const user = window._currentUser;
-  if (!user) { showToast("🔐 Log in with IITM email first!", "error"); return; }
+  if (!user) { window.showToast("🔐 Log in with IITM email first!", "error"); return; }
  
   const title    = document.getElementById("rTitle").value.trim();
   const priceDay = document.getElementById("rPriceDay").value;
@@ -199,8 +199,8 @@ window.postRental = async () => {
   const phone    = document.getElementById("rPhone").value.replace(/\D/g, "");
   const file     = document.getElementById("rImage").files[0];
  
-  if (!title || !priceDay || !desc || !phone) { showToast("Fill in all required fields!", "error"); return; }
-  if (phone.length < 10) { showToast("Enter valid phone number!", "error"); return; }
+  if (!title || !priceDay || !desc || !phone) { window.showToast("Fill in all required fields!", "error"); return; }
+  if (phone.length < 10) { window.showToast("Enter valid phone number!", "error"); return; }
  
   const btn = document.getElementById("rentSubmitBtn");
   btn.disabled = true; btn.textContent = "Posting…";
@@ -211,7 +211,7 @@ window.postRental = async () => {
       title, priceDay: Number(priceDay), cat,
       emoji: window._selectedRentalEmoji || "📦",
       desc, hostel, minDays: Number(minDays), phone, imageUrl,
-      ownerName: getDisplayName(user),
+      ownerName: window.getDisplayName(user),
       ownerEmail: user.email, ownerUid: user.uid,
       available: true,
       createdAt: serverTimestamp()
@@ -219,9 +219,9 @@ window.postRental = async () => {
     ["rTitle","rPriceDay","rDesc","rPhone","rMinDays"].forEach(id => document.getElementById(id).value = "");
     document.getElementById("rImage").value = "";
     document.getElementById("rentImagePreview").style.display = "none";
-    closeRentPost();
-    showToast("🎉 Rental posted!");
-  } catch (e) { console.error(e); showToast("Failed to post. Try again.", "error"); }
+    window.closeRentPost();
+    window.showToast("🎉 Rental posted!");
+  } catch (e) { console.error(e); window.showToast("Failed to post. Try again.", "error"); }
  
   btn.disabled = false; btn.textContent = "🔑 List for Rent";
 };
@@ -230,8 +230,8 @@ window.deleteRental = async (id) => {
   if (!confirm("Remove this rental?")) return;
   try {
     await deleteDoc(doc(db, "rentals", id));
-    closeRentDetail(); showToast("🗑 Rental removed");
-  } catch(e) { showToast("Couldn't delete. Try again.", "error"); }
+    window.closeRentDetail(); window.showToast("🗑 Rental removed");
+  } catch(e) { window.showToast("Couldn't delete. Try again.", "error"); }
 };
  
 </script>
@@ -460,7 +460,7 @@ window.deleteRental = async (id) => {
 <!-- ══════════════════ SELL POST MODAL ══════════════════ -->
 <div class="overlay" id="postOverlay">
   <div class="modal">
-    <button class="modal-close" onclick="closePost()">✕</button>
+    <button class="modal-close" onclick="window.closePost()">✕</button>
     <h2>Post an Item 📦</h2>
     <p class="modal-sub">List something for sale to the IITM community.</p>
     <div class="login-wall" id="loginWall">
@@ -541,7 +541,7 @@ window.deleteRental = async (id) => {
 <!-- ══════════════════ RENT POST MODAL ══════════════════ -->
 <div class="overlay" id="rentPostOverlay">
   <div class="modal">
-    <button class="modal-close" onclick="closeRentPost()">✕</button>
+    <button class="modal-close" onclick="window.closeRentPost()">✕</button>
     <h2>List Item for Rent 🔑</h2>
     <p class="modal-sub">Let fellow students rent your stuff. Set your daily price.</p>
     <div class="login-wall" id="rentLoginWall">
@@ -617,7 +617,7 @@ window.deleteRental = async (id) => {
 <!-- ══════════════════ SELL DETAIL MODAL ══════════════════ -->
 <div class="overlay" id="detailOverlay">
   <div class="modal">
-    <button class="modal-close" onclick="closeDetail()">✕</button>
+    <button class="modal-close" onclick="window.closeDetail()">✕</button>
     <div id="detailContent"></div>
   </div>
 </div>
@@ -625,7 +625,7 @@ window.deleteRental = async (id) => {
 <!-- ══════════════════ RENT DETAIL MODAL ══════════════════ -->
 <div class="overlay" id="rentDetailOverlay">
   <div class="modal">
-    <button class="modal-close" onclick="closeRentDetail()">✕</button>
+    <button class="modal-close" onclick="window.closeRentDetail()">✕</button>
     <div id="rentDetailContent"></div>
   </div>
 </div>
