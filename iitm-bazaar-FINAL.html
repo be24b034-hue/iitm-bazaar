@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IITM Bazaar — Campus Marketplace</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,400&display=swap" rel="stylesheet">
+
+<!-- Firebase SDKs -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {
+  getFirestore, collection, addDoc, getDocs, deleteDoc, doc,
+  query, orderBy, onSnapshot, serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getStorage, ref, uploadBytes, getDownloadURL }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
+
+// ─────────────────────────────────────────────
+// 🔥 PASTE YOUR FIREBASE CONFIG HERE
+// Go to: console.firebase.google.com → your project → Project Settings → Web App
+// ─────────────────────────────────────────────
+const firebaseConfig = {
+  apiKey:            "AIzaSyCBQ_4OlgDOceeSZYmmzR-1p21XDh3sh_Y",
+  authDomain:        "iitm-bazzar.firebaseapp.com",
+  projectId:         "iitm-bazzar",
+  storageBucket:     "iitm-bazzar.firebasestorage.app",
+  messagingSenderId: "768844990425",
+  appId:             "1:768844990425:web:c8d94b8f0ed1d73a853bc8"
+};
+// ─────────────────────────────────────────────
+
+const app      = initializeApp(firebaseConfig);
+const auth     = getAuth(app);
+const db       = getFirestore(app);
+const storage  = getStorage(app);
+const provider = new GoogleAuthProvider();
+
+// ── AUTH ──────────────────────────────────────
+window.signIn = async () => {
+  try {
+    const result = await signInWithPopup(auth, provider);
+    const email  = result.user.email;
+    // Restrict to IITM emails only
+    if (!email.endsWith("@smail.iitm.ac.in") && !email.endsWith("@iitm.ac.in")) {
+      await signOut(auth);
+      showToast("❌ Only IITM emails allowed!", "error");
+      return;
+    }
+    showToast("✅ Logged in as " + result.user.displayName.split(" ")[0]);
+  } catch (e) {
+    console.error(e);
+    showToast("Login failed. Try again.", "error");
+  }
+};
+
+window.signOutUser = async () => {
+  await signOut(auth);
+  showToast("👋 Logged out");
+};
+
+onAuthStateChanged(auth, user => {
+  window._currentUser = user;
+  updateAuthUI(user);
+});
+
+function updateAuthUI(user) {
+  const loginBtn  = document.getElementById("loginBtn");
+  const logoutBtn = document.getElementById("logoutBtn");
+  const userName  = document.getElementById("userName");
+  const postBtn   = document.getElementById("postItemBtn");
+
+  if (user) {
+    loginBtn.style.display  = "none";
+    logoutBtn.style.display = "flex";
+    userName.textContent    = user.displayName.split(" ")[0];
+    postBtn.style.display   = "flex";
+  } else {
+    loginBtn.style.display  = "flex";
+    logoutBtn.style.display = "none";
+    postBtn.style.display   = "flex"; // still show, will prompt login
+  }
+}
+
+// ── REAL-TIME LISTENER ────────────────────────
+const listingsRef = collection(db, "listings");
+const q           = query(listingsRef, orderBy("createdAt", "desc"));
+
+onSnapshot(q, snapshot => {
+  window._listings = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+  renderListings();
+});
+
+// ── POST ITEM ─────────────────────────────────
+window.postItem = async () => {
+  const user = window._currentUser;
+  if (!user) { showToast("🔐 Log in with IITM email first!", "error"); return; }
+
+  const title  = document.getElementById("fTitle").value.trim();
+  const price  = document.getElementById("fPrice").value;
+  const cat    = document.getElementById("fCat").value;
+  const desc   = document.getElementById("fDesc").value.trim();
+  const hostel = document.getElementById("fHostel").value;
+  const cond   = document.getElementById("fCond").value;
+  const phone  = document.getElementById("fPhone").value.replace(/\D/g, "");
+  const file   = document.getElementById("fImage").files[0];
+
+  if (!title || !price || !desc || !phone) {
+    showToast("Fill in all required fields!", "error"); return;
+  }
+  if (phone.length < 10) { showToast("Enter valid phone number!", "error"); return; }
+
+  const btn = document.getElementById("submitBtn");
+  btn.disabled = true;
+  btn.textContent = "Posting…";
+
+  try {
+    let imageUrl = "";
+
+    // Upload image to Firebase Storage if provided
+    if (file) {
+      const imgRef = ref(storage, `listings/${Date.now()}_${file.name}`);
+      await uploadBytes(imgRef, file);
+      imageUrl = await getDownloadURL(imgRef);
+    }
+
+    await addDoc(listingsRef, {
+      title, price: Number(price), cat,
+      emoji: window._selectedEmoji || "📦",
+      desc, hostel, cond,
+      phone, imageUrl,
+      sellerName:  user.displayName,
+      sellerEmail: user.email,
+      sellerUid:   user.uid,
+      createdAt:   serverTimestamp()
+    });
+
+    // Reset form
+    ["fTitle","fPrice","fDesc","fPhone"].forEach(id => document.getElementById(id).value = "");
+    document.getElementById("fImage").value = "";
+    document.getElementById("imagePreview").style.display = "none";
+    closePost();
+    showToast("🎉 Item posted! Students can see it now.");
+  } catch (e) {
+    console.error(e);
+    showToast("Failed to post. Try again.", "error");
+  }
+
+  btn.disabled   = false;
+  btn.textContent = "🚀 Post Item";
+};
+
+// ── DELETE ────────────────────────────────────
+window.deleteListing = async (id) => {
+  if (!confirm("Remove this listing?")) return;
+  try {
+    await deleteDoc(doc(db, "listings", id));
+    closeDetail();
+    showToast("🗑 Listing removed");
+  } catch(e) {
+    showToast("Couldn't delete. Try again.", "error");
+  }
+};
+
+// ── AI DESCRIPTION ─────────────────────────────
+window.generateDesc = async () => {
+  const title = document.getElementById("fTitle").value.trim();
+  const cat   = document.getElementById("fCat").value;
+  const price = document.getElementById("fPrice").value;
+  const cond  = document.getElementById("fCond").value;
+  if (!title) { showToast("Enter item title first!", "error"); return; }
+
+  const btn = document.getElementById("aiDescBtn");
+  btn.disabled = true;
+  btn.textContent = "Writing…";
+
+  try {
+    const res  = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 200,
+        system: "You write short, honest, casual marketplace listing descriptions for IIT Madras students. 2-3 sentences max. Sound like a real student. Mention condition, what's included, why selling. No emojis. No hashtags.",
+        messages: [{ role: "user", content: `Item: "${title}" · Category: ${cat} · Price: ₹${price} · Condition: ${cond}` }]
+      })
+    });
+    const data = await res.json();
+    document.getElementById("fDesc").value = data.content?.[0]?.text || "";
+  } catch(e) {
+    document.getElementById("fDesc").value =
+      `${cond} ${title}. Selling because I no longer need it. Pickup from ${document.getElementById("fHostel").value}. Open to small negotiations.`;
+  }
+
+  btn.disabled    = false;
+  btn.textContent = "✨ AI Write";
+};
+</script>
+
+<style>
+  :root {
+    --bg: #0d0f14; --surface: #161920; --card: #1e2230;
+    --border: #2a2f42; --accent: #f5a623; --accent2: #ff6b6b;
+    --text: #e8eaf0; --muted: #7a7f9a; --green: #4ade80;
+    --blue: #60a5fa; --red: #f87171;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; min-height: 100vh; }
+
+  /* ── NAV ── */
+  nav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 28px; background: var(--surface);
+    border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 100;
+    gap: 12px; flex-wrap: wrap;
+  }
+  .logo { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 22px; letter-spacing: -0.5px; }
+  .logo span { color: var(--accent); }
+  .nav-right { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .btn { padding: 8px 18px; border-radius: 8px; border: none; cursor: pointer; font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 500; transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px; }
+  .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+  .btn-ghost:hover { background: var(--card); color: var(--text); }
+  .btn-accent { background: var(--accent); color: #111; }
+  .btn-accent:hover { background: #e09520; transform: translateY(-1px); }
+  .btn-login { background: #4285F4; color: white; }
+  .btn-login:hover { background: #3574e2; }
+  .btn-logout { background: var(--card); color: var(--muted); border: 1px solid var(--border); font-size: 13px; }
+  #userName { color: var(--accent); font-weight: 600; font-size: 13px; }
+  #postItemBtn { display: none; }
+
+  /* ── HERO ── */
+  .hero { padding: 36px 28px 24px; max-width: 1100px; margin: 0 auto; }
+  .hero h1 { font-family: 'Syne', sans-serif; font-weight: 800; font-size: clamp(26px, 4.5vw, 44px); line-height: 1.1; }
+  .hero h1 em { font-style: normal; color: var(--accent); }
+  .hero p { color: var(--muted); margin-top: 8px; font-size: 15px; }
+  .live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; margin-right: 6px; }
+  @keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.6; transform: scale(0.85); } }
+
+  /* ── SEARCH & FILTERS ── */
+  .controls { max-width: 1100px; margin: 0 auto; padding: 0 28px 8px; }
+  .search-input { width: 100%; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 14px; outline: none; margin-bottom: 12px; }
+  .search-input:focus { border-color: var(--accent); }
+  .search-input::placeholder { color: var(--muted); }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+  .chip { padding: 6px 14px; border-radius: 20px; border: 1px solid var(--border); background: var(--card); color: var(--muted); font-size: 13px; cursor: pointer; transition: all 0.2s; }
+  .chip:hover, .chip.active { background: var(--accent); color: #111; border-color: var(--accent); font-weight: 600; }
+
+  /* ── STATS ── */
+  .stats { display: flex; gap: 24px; max-width: 1100px; margin: 0 auto; padding: 0 28px 24px; flex-wrap: wrap; }
+  .stat { font-size: 13px; color: var(--muted); }
+  .stat strong { color: var(--accent); font-family: 'Syne', sans-serif; font-size: 20px; display: block; }
+
+  /* ── GRID ── */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; max-width: 1100px; margin: 0 auto; padding: 0 28px 80px; }
+
+  /* ── CARD ── */
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; cursor: pointer; transition: all 0.25s; animation: fadeUp 0.4s ease both; }
+  .card:hover { transform: translateY(-4px); border-color: var(--accent); box-shadow: 0 8px 30px rgba(245,166,35,0.12); }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+
+  .card-img-wrap { width: 100%; height: 170px; overflow: hidden; background: var(--border); display: flex; align-items: center; justify-content: center; position: relative; }
+  .card-img-wrap img { width: 100%; height: 100%; object-fit: cover; }
+  .card-img-emoji { font-size: 52px; }
+  .sold-badge { position: absolute; top: 10px; right: 10px; background: var(--red); color: white; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; }
+
+  .card-body { padding: 14px; }
+  .card-badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; margin-bottom: 8px; background: rgba(245,166,35,0.15); color: var(--accent); }
+  .card-title { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 15px; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card-desc { font-size: 13px; color: var(--muted); margin-bottom: 10px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.5; }
+  .card-footer { display: flex; justify-content: space-between; align-items: center; }
+  .price { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 18px; color: var(--green); }
+  .hostel-label { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .wa-btn { padding: 7px 12px; border-radius: 8px; background: #25D366; color: white; border: none; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 4px; }
+  .wa-btn:hover { background: #1da851; transform: scale(1.05); }
+
+  /* ── EMPTY ── */
+  .empty { grid-column: 1/-1; text-align: center; padding: 80px 20px; }
+  .empty-icon { font-size: 56px; margin-bottom: 16px; }
+  .empty h3 { font-family: 'Syne', sans-serif; font-size: 20px; margin-bottom: 8px; }
+  .empty p { color: var(--muted); font-size: 14px; }
+
+  /* ── MODAL ── */
+  .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 200; align-items: center; justify-content: center; padding: 20px; backdrop-filter: blur(4px); }
+  .overlay.open { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; width: 100%; max-width: 520px; max-height: 90vh; overflow-y: auto; padding: 28px; position: relative; animation: modalIn 0.2s ease; }
+  @keyframes modalIn { from { opacity: 0; transform: scale(0.96) translateY(8px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+  .modal-close { position: absolute; top: 18px; right: 18px; background: var(--border); border: none; color: var(--muted); width: 32px; height: 32px; border-radius: 8px; cursor: pointer; font-size: 16px; transition: all 0.2s; }
+  .modal-close:hover { background: var(--accent2); color: white; }
+  .modal h2 { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 22px; margin-bottom: 4px; }
+  .modal-sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+
+  /* ── FORM ── */
+  .form-group { margin-bottom: 14px; }
+  label { display: block; font-size: 13px; font-weight: 500; color: var(--muted); margin-bottom: 5px; }
+  input[type=text], input[type=number], input[type=tel], select, textarea {
+    width: 100%; background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 11px 14px; color: var(--text);
+    font-family: 'DM Sans', sans-serif; font-size: 14px; outline: none; transition: border 0.2s;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+  select option { background: var(--card); }
+  textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .required { color: var(--accent); }
+
+  .ai-row { display: flex; gap: 8px; }
+  .ai-row textarea { flex: 1; }
+  .ai-btn { padding: 11px 14px; background: linear-gradient(135deg, #7c3aed, #a855f7); border: none; border-radius: 10px; color: white; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: all 0.2s; font-family: 'DM Sans', sans-serif; align-self: flex-start; margin-top: 0; }
+  .ai-btn:hover { filter: brightness(1.15); }
+  .ai-btn:disabled { opacity: 0.5; cursor: wait; }
+
+  /* Image Upload */
+  .upload-zone { border: 2px dashed var(--border); border-radius: 10px; padding: 20px; text-align: center; cursor: pointer; transition: all 0.2s; color: var(--muted); font-size: 13px; }
+  .upload-zone:hover { border-color: var(--accent); color: var(--text); }
+  #imagePreview { width: 100%; border-radius: 10px; margin-top: 10px; display: none; max-height: 200px; object-fit: cover; }
+
+  /* Emoji picker */
+  .emoji-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; margin-bottom: 4px; }
+  .emoji-opt { font-size: 22px; border: 2px solid transparent; border-radius: 8px; padding: 4px; cursor: pointer; text-align: center; transition: all 0.12s; }
+  .emoji-opt:hover, .emoji-opt.selected { border-color: var(--accent); background: rgba(245,166,35,0.1); }
+
+  /* ── DETAIL MODAL ── */
+  .detail-img { width: 100%; height: 220px; border-radius: 12px; overflow: hidden; background: var(--card); display: flex; align-items: center; justify-content: center; margin-bottom: 20px; }
+  .detail-img img { width: 100%; height: 100%; object-fit: cover; }
+  .detail-img-emoji { font-size: 80px; }
+  .detail-price { font-family: 'Syne', sans-serif; font-size: 32px; font-weight: 800; color: var(--green); margin-bottom: 4px; }
+  .detail-meta { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+  .detail-tag { background: var(--card); border: 1px solid var(--border); padding: 4px 12px; border-radius: 20px; font-size: 12px; color: var(--muted); }
+  .detail-desc { color: var(--muted); font-size: 14px; line-height: 1.7; margin-bottom: 20px; }
+  .detail-seller { display: flex; align-items: center; gap: 12px; background: var(--card); padding: 14px; border-radius: 12px; margin-bottom: 16px; }
+  .seller-avatar { width: 40px; height: 40px; border-radius: 10px; background: var(--accent); display: flex; align-items: center; justify-content: center; font-family: 'Syne', sans-serif; font-weight: 800; font-size: 16px; color: #111; flex-shrink: 0; }
+  .btn-wa-large { background: #25D366; color: white; padding: 14px; font-size: 15px; border-radius: 12px; width: 100%; border: none; cursor: pointer; font-family: 'DM Sans', sans-serif; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s; }
+  .btn-wa-large:hover { background: #1da851; }
+  .btn-danger { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 11px; font-size: 14px; border-radius: 12px; width: 100%; margin-top: 8px; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.2s; }
+  .btn-danger:hover { border-color: var(--red); color: var(--red); }
+
+  /* ── TOAST ── */
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(100px); background: var(--green); color: #111; padding: 12px 24px; border-radius: 12px; font-weight: 600; font-size: 14px; z-index: 999; transition: transform 0.3s ease; white-space: nowrap; }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+  .toast.error { background: var(--red); color: white; }
+
+  /* ── LOGIN WALL ── */
+  .login-wall { background: rgba(245,166,35,0.06); border: 1px solid rgba(245,166,35,0.2); border-radius: 14px; padding: 20px; text-align: center; margin-bottom: 16px; display: none; }
+  .login-wall p { color: var(--muted); font-size: 14px; margin-bottom: 12px; }
+
+  /* ── SCROLLBAR ── */
+  ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: var(--bg); } ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  @media (max-width: 600px) {
+    nav { padding: 12px 16px; } .hero, .controls, .stats { padding-left: 16px; padding-right: 16px; } .grid { padding: 0 16px 60px; } .row2 { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="logo">IITM <span>Bazaar</span> <span class="live-dot" title="Live"></span></div>
+  <div class="nav-right">
+    <span id="userName" style="display:none"></span>
+    <button class="btn btn-login" id="loginBtn" onclick="signIn()" style="display:none">
+      <svg width="16" height="16" viewBox="0 0 48 48" style="flex-shrink:0"><path fill="#4285F4" d="M44.5 20H24v8.5h11.8C34.7 33.9 29.9 37 24 37c-7.2 0-13-5.8-13-13s5.8-13 13-13c3.1 0 5.9 1.1 8.1 2.9l6.4-6.4C34.6 4.1 29.6 2 24 2 11.8 2 2 11.8 2 24s9.8 22 22 22c11 0 21-8 21-22 0-1.3-.2-2.7-.5-4z"/></svg>
+      Login with Google
+    </button>
+    <button class="btn btn-logout" id="logoutBtn" onclick="signOutUser()" style="display:none">
+      Logout
+    </button>
+    <button class="btn btn-accent" id="postItemBtn" onclick="openPost()">+ Sell Item</button>
+  </div>
+</nav>
+
+<!-- HERO -->
+<div class="hero">
+  <h1>Buy &amp; Sell on Campus —<br><em>No spam. Just vibes.</em></h1>
+  <p>The IITM-only marketplace. Cycles · Books · Mattress · Electronics &amp; more.</p>
+</div>
+
+<!-- SEARCH + FILTERS -->
+<div class="controls">
+  <input type="text" class="search-input" id="searchInput" placeholder="🔍  Search listings..." oninput="renderListings()">
+  <div class="chips">
+    <div class="chip active" data-cat="All"         onclick="setFilter('All')">All Items</div>
+    <div class="chip"        data-cat="Cycle"       onclick="setFilter('Cycle')">🚲 Cycles</div>
+    <div class="chip"        data-cat="Books"       onclick="setFilter('Books')">📚 Books</div>
+    <div class="chip"        data-cat="Mattress"    onclick="setFilter('Mattress')">🛏 Mattress</div>
+    <div class="chip"        data-cat="Electronics" onclick="setFilter('Electronics')">⚡ Electronics</div>
+    <div class="chip"        data-cat="Lab"         onclick="setFilter('Lab')">🥼 Lab Items</div>
+    <div class="chip"        data-cat="Food"        onclick="setFilter('Food')">🍜 Food</div>
+    <div class="chip"        data-cat="Other"       onclick="setFilter('Other')">📦 Other</div>
+  </div>
+</div>
+
+<!-- STATS -->
+<div class="stats">
+  <div class="stat"><strong id="statCount">—</strong>listings live</div>
+  <div class="stat"><strong id="statToday">—</strong>posted today</div>
+  <div class="stat"><strong>🔒</strong>IITM only</div>
+</div>
+
+<!-- GRID -->
+<div class="grid" id="listingsGrid">
+  <div class="empty">
+    <div class="empty-icon">⏳</div>
+    <h3>Loading listings…</h3>
+    <p>Connecting to Firebase</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════ POST MODAL ═══ -->
+<div class="overlay" id="postOverlay">
+  <div class="modal">
+    <button class="modal-close" onclick="closePost()">✕</button>
+    <h2>Post an Item 📦</h2>
+    <p class="modal-sub">Fill in details — AI writes your description for free!</p>
+
+    <!-- Login wall inside modal -->
+    <div class="login-wall" id="loginWall">
+      <p>You need an IITM email to post listings</p>
+      <button class="btn btn-login" onclick="signIn()" style="margin:0 auto">
+        Login with @smail.iitm.ac.in
+      </button>
+    </div>
+
+    <div id="postForm">
+      <div class="form-group">
+        <label>Item Title <span class="required">*</span></label>
+        <input type="text" id="fTitle" placeholder="e.g. Hero Cycle, HC Verma, MacBook Air…">
+      </div>
+
+      <div class="row2">
+        <div class="form-group">
+          <label>Price ₹ <span class="required">*</span></label>
+          <input type="number" id="fPrice" placeholder="500" min="0">
+        </div>
+        <div class="form-group">
+          <label>Category <span class="required">*</span></label>
+          <select id="fCat">
+            <option value="Cycle">🚲 Cycle</option>
+            <option value="Books">📚 Books</option>
+            <option value="Mattress">🛏 Mattress</option>
+            <option value="Electronics">⚡ Electronics</option>
+            <option value="Lab">🥼 Lab Items</option>
+            <option value="Food">🍜 Food</option>
+            <option value="Other">📦 Other</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Icon Emoji</label>
+        <div class="emoji-grid" id="emojiGrid"></div>
+      </div>
+
+      <div class="form-group">
+        <label>Photo (optional but recommended)</label>
+        <div class="upload-zone" onclick="document.getElementById('fImage').click()">
+          📷 &nbsp;Tap to upload photo
+          <input type="file" id="fImage" accept="image/*" style="display:none" onchange="previewImage(this)">
+        </div>
+        <img id="imagePreview" alt="Preview">
+      </div>
+
+      <div class="form-group">
+        <label>Description <span class="required">*</span></label>
+        <div class="ai-row">
+          <textarea id="fDesc" placeholder="Describe condition, age, what's included…" rows="3"></textarea>
+          <button class="ai-btn" id="aiDescBtn" onclick="generateDesc()">✨ AI Write</button>
+        </div>
+      </div>
+
+      <div class="row2">
+        <div class="form-group">
+          <label>Hostel <span class="required">*</span></label>
+          <select id="fHostel">
+            <option>Alakananda</option><option>Brahmaputra</option><option>Cauvery</option>
+            <option>Ganga</option><option>Godavari</option><option>Krishna</option>
+            <option>Mahanadi</option><option>Narmada</option><option>Saraswati</option>
+            <option>Sharavati</option><option>Sindhu</option><option>Tapti</option><option>Tunga</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Condition</label>
+          <select id="fCond">
+            <option value="Like New">Like New ✨</option>
+            <option value="Good">Good 👍</option>
+            <option value="Fair">Fair 🙂</option>
+            <option value="Used">Used 🔧</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>WhatsApp Number <span class="required">*</span></label>
+        <input type="tel" id="fPhone" placeholder="91XXXXXXXXXX">
+      </div>
+
+      <button class="btn btn-accent" id="submitBtn" onclick="postItem()"
+        style="width:100%;padding:14px;font-size:15px;border-radius:12px;justify-content:center;margin-top:4px">
+        🚀 Post Item
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════ DETAIL MODAL ═══ -->
+<div class="overlay" id="detailOverlay">
+  <div class="modal" id="detailModal">
+    <button class="modal-close" onclick="closeDetail()">✕</button>
+    <div id="detailContent"></div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ── STATE ─────────────────────────────────────
+window._listings     = [];
+window._currentUser  = null;
+window._selectedEmoji = "📦";
+let   _activeFilter  = "All";
+
+const EMOJIS = ["🚲","📚","🛏","💻","📱","🎒","🥼","🍜","🎸","🏋️","🔧","📷","🎧","📦","🪑","🧊"];
+
+// ── EMOJI SETUP ───────────────────────────────
+function setupEmoji() {
+  document.getElementById("emojiGrid").innerHTML = EMOJIS.map(e =>
+    `<div class="emoji-opt ${e===window._selectedEmoji?"selected":""}" onclick="pickEmoji('${e}')">${e}</div>`
+  ).join("");
+}
+window.pickEmoji = e => { window._selectedEmoji = e; setupEmoji(); };
+setupEmoji();
+
+// ── IMAGE PREVIEW ─────────────────────────────
+window.previewImage = input => {
+  const preview = document.getElementById("imagePreview");
+  if (input.files && input.files[0]) {
+    const reader = new FileReader();
+    reader.onload = e => { preview.src = e.target.result; preview.style.display = "block"; };
+    reader.readAsDataURL(input.files[0]);
+  }
+};
+
+// ── FILTER ────────────────────────────────────
+window.setFilter = cat => {
+  _activeFilter = cat;
+  document.querySelectorAll(".chip").forEach(c => c.classList.toggle("active", c.dataset.cat === cat));
+  renderListings();
+};
+
+// ── RENDER ────────────────────────────────────
+function timeAgo(ts) {
+  if (!ts) return "just now";
+  const s = Math.floor((Date.now() - ts.toMillis?.() || ts) / 1000);
+  if (s < 60)    return "just now";
+  if (s < 3600)  return `${Math.floor(s/60)}m ago`;
+  if (s < 86400) return `${Math.floor(s/3600)}h ago`;
+  return `${Math.floor(s/86400)}d ago`;
+}
+
+window.renderListings = () => {
+  const q   = document.getElementById("searchInput").value.toLowerCase();
+  const grid = document.getElementById("listingsGrid");
+  const now  = Date.now();
+
+  let filtered = window._listings.filter(l => {
+    if (_activeFilter !== "All" && l.cat !== _activeFilter) return false;
+    if (q && !`${l.title} ${l.desc} ${l.hostel} ${l.cat}`.toLowerCase().includes(q)) return false;
+    return true;
+  });
+
+  const todayCount = window._listings.filter(l => {
+    const ms = l.createdAt?.toMillis?.() || 0;
+    return now - ms < 86400000;
+  }).length;
+
+  document.getElementById("statCount").textContent = window._listings.length;
+  document.getElementById("statToday").textContent = todayCount;
+
+  if (!filtered.length) {
+    grid.innerHTML = `<div class="empty"><div class="empty-icon">🤔</div><h3>Nothing here yet</h3><p>Be the first to post in this category!</p></div>`;
+    return;
+  }
+
+  grid.innerHTML = filtered.map((l, i) => `
+    <div class="card" style="animation-delay:${i*0.04}s" onclick="openDetail('${l.id}')">
+      <div class="card-img-wrap">
+        ${l.imageUrl
+          ? `<img src="${l.imageUrl}" alt="${l.title}" loading="lazy">`
+          : `<span class="card-img-emoji">${l.emoji || "📦"}</span>`}
+        ${l.sold ? `<span class="sold-badge">SOLD</span>` : ""}
+      </div>
+      <div class="card-body">
+        <span class="card-badge">${l.cat}</span>
+        <div class="card-title">${l.title}</div>
+        <div class="card-desc">${l.desc}</div>
+        <div class="card-footer">
+          <div>
+            <div class="price">₹${Number(l.price).toLocaleString()}</div>
+            <div class="hostel-label">🏠 ${l.hostel} · ${timeAgo(l.createdAt)}</div>
+          </div>
+          <button class="wa-btn" onclick="event.stopPropagation(); contactWA('${l.phone}','${l.title}','${l.price}')">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+            Chat
+          </button>
+        </div>
+      </div>
+    </div>
+  `).join("");
+};
+
+// ── DETAIL ────────────────────────────────────
+window.openDetail = id => {
+  const l = window._listings.find(x => x.id === id);
+  if (!l) return;
+
+  const isOwner = window._currentUser?.uid === l.sellerUid;
+  const initials = (l.sellerName || "?")[0].toUpperCase();
+
+  document.getElementById("detailContent").innerHTML = `
+    <div class="detail-img">
+      ${l.imageUrl
+        ? `<img src="${l.imageUrl}" alt="${l.title}">`
+        : `<span class="detail-img-emoji">${l.emoji || "📦"}</span>`}
+    </div>
+    <h2 style="font-family:Syne,sans-serif;font-weight:800;font-size:22px;margin-bottom:6px">${l.title}</h2>
+    <div class="detail-price">₹${Number(l.price).toLocaleString()}</div>
+    <div class="detail-meta">
+      <span class="detail-tag">📂 ${l.cat}</span>
+      <span class="detail-tag">🏠 ${l.hostel}</span>
+      <span class="detail-tag">✅ ${l.cond}</span>
+      <span class="detail-tag">⏰ ${timeAgo(l.createdAt)}</span>
+    </div>
+    <div class="detail-desc">${l.desc}</div>
+    <div class="detail-seller">
+      <div class="seller-avatar">${initials}</div>
+      <div>
+        <div style="font-weight:600">${l.sellerName || "IITM Student"}</div>
+        <div style="font-size:12px;color:var(--muted)">Verified IITM · ${l.hostel}</div>
+      </div>
+    </div>
+    <button class="btn-wa-large" onclick="contactWA('${l.phone}','${l.title}','${l.price}')">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+      Chat on WhatsApp
+    </button>
+    ${isOwner ? `<button class="btn-danger" onclick="deleteListing('${l.id}')">🗑 Remove my listing</button>` : ""}
+  `;
+  document.getElementById("detailOverlay").classList.add("open");
+};
+window.closeDetail = () => document.getElementById("detailOverlay").classList.remove("open");
+
+// ── POST MODAL ────────────────────────────────
+window.openPost = () => {
+  const user = window._currentUser;
+  document.getElementById("loginWall").style.display = user ? "none" : "block";
+  document.getElementById("postForm").style.opacity  = user ? "1"    : "0.4";
+  document.getElementById("postForm").style.pointerEvents = user ? "auto" : "none";
+  setupEmoji();
+  document.getElementById("postOverlay").classList.add("open");
+};
+window.closePost = () => document.getElementById("postOverlay").classList.remove("open");
+
+// ── WHATSAPP ──────────────────────────────────
+window.contactWA = (phone, title, price) => {
+  const msg = encodeURIComponent(`Hi! I saw your listing on IITM Bazaar:\n*${title}* — ₹${price}\n\nIs it still available?`);
+  window.open(`https://wa.me/${phone}?text=${msg}`, "_blank");
+};
+
+// ── TOAST ─────────────────────────────────────
+window.showToast = (msg, type = "success") => {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.className   = `toast ${type === "error" ? "error" : ""} show`;
+  setTimeout(() => t.classList.remove("show"), 3500);
+};
+
+// Close overlays on background click
+["postOverlay","detailOverlay"].forEach(id => {
+  document.getElementById(id).addEventListener("click", function(e) {
+    if (e.target === this) this.classList.remove("open");
+  });
+});
+</script>
+</body>
+</html>
