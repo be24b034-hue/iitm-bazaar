@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>IITM Bazaar — Campus Marketplace</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,400&display=swap" rel="stylesheet">
- 
+
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged }
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore, collection, addDoc, deleteDoc, doc, query, orderBy, onSnapshot, serverTimestamp }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
- 
+
 const firebaseConfig = {
   apiKey:            "AIzaSyCBQ_4OlgDOceeSZYmmzR-1p21XDh3sh_Y",
   authDomain:        "iitm-bazzar.firebaseapp.com",
@@ -21,7 +21,7 @@ const firebaseConfig = {
   messagingSenderId: "768844990425",
   appId:             "1:768844990425:web:c8d94b8f0ed1d73a853bc8"
 };
- 
+
 const app  = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db   = getFirestore(app);
@@ -29,7 +29,7 @@ const CLOUDINARY_CLOUD  = "dfdj9xxg2";
 const CLOUDINARY_PRESET = "iitm_bazaar";
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ prompt: "select_account" });
- 
+
 // ── FAKE DETECTOR ─────────────────────────────────────────────────────────────
 function detectFakeListing(data) {
   const phone = data.phone.replace(/\D/g, "");
@@ -47,63 +47,41 @@ function detectFakeListing(data) {
   if (Number(data.price) > 500000)          return "🤖 Price seems unrealistic";
   return null;
 }
- 
+
 // ── AUTH ──────────────────────────────────────────────────────────────────────
-const ADMIN_EMAIL = "be24b034@smail.iitm.ac.in";
- 
 window.signIn = async () => {
-  // Already logged in — do nothing, no error
-  if (window._currentUser) return;
   try {
     const result = await signInWithPopup(auth, provider);
     const email  = result.user.email;
-    // Only allow IITM emails
     if (!email.endsWith("@smail.iitm.ac.in") && !email.endsWith("@iitm.ac.in")) {
       await signOut(auth);
-      window.showToast("❌ Only @smail.iitm.ac.in emails allowed!", "error");
+      window.showToast("❌ Only IITM emails allowed!", "error");
       return;
     }
     const name = (result.user.displayName || email.split("@")[0]).split(" ")[0];
     window.showToast("✅ Hi " + name + "! Welcome 👋");
   } catch (e) {
-    // User closed popup — silent, no error
     if (e.code === "auth/popup-closed-by-user" || e.code === "auth/cancelled-popup-request") return;
-    // Popup blocked → redirect fallback
-    if (e.code === "auth/popup-blocked") {
-      await signInWithRedirect(auth, provider);
-      return;
-    }
-    // Only show error if genuinely not logged in
-    if (!window._currentUser) {
-      console.error(e);
-      window.showToast("Login failed. Try again.", "error");
-    }
+    console.error(e);
+    window.showToast("Login failed. Use mobile data, not insti WiFi!", "error");
   }
 };
- 
+
 window.signOutUser = async () => {
   await signOut(auth);
   window.showToast("👋 Logged out");
 };
- 
-// Handle redirect login result (fires after page reloads from redirect)
-getRedirectResult(auth).then(result => {
-  if (result?.user) {
-    const name = (result.user.displayName || result.user.email.split("@")[0]).split(" ")[0];
-    window.showToast("✅ Hi " + name + "! Welcome 👋");
-  }
-}).catch(() => {});
- 
+
 onAuthStateChanged(auth, user => {
   window._currentUser = user;
   window.updateAuthUI(user);
 });
- 
+
 window.getDisplayName = function(user) {
   if (!user) return "";
   return (user.displayName && user.displayName.split(" ")[0]) || user.email.split("@")[0];
 };
- 
+
 window.updateAuthUI = function(user) {
   const loginBtn  = document.getElementById("loginBtn");
   const logoutBtn = document.getElementById("logoutBtn");
@@ -111,18 +89,17 @@ window.updateAuthUI = function(user) {
   if (!loginBtn) return;
   if (user) {
     const name = window.getDisplayName(user);
-    const isAdmin = user.email === ADMIN_EMAIL;
     loginBtn.style.display  = "none";
     logoutBtn.style.display = "flex";
     userName.style.display  = "inline-flex";
-    userName.innerHTML = `<span style="opacity:.6;font-size:13px">Hi,</span>&nbsp;<b style="color:var(--accent)">${name}</b>&nbsp;${isAdmin ? `<span style="background:var(--accent);color:#111;font-size:10px;font-weight:800;padding:2px 8px;border-radius:20px;letter-spacing:.5px">ADMIN</span>` : "👋"}`;
+    userName.innerHTML = `<span style="opacity:.6;font-size:13px">Hi,</span>&nbsp;<b style="color:var(--accent)">${name}</b>&nbsp;👋`;
   } else {
     loginBtn.style.display  = "flex";
     logoutBtn.style.display = "none";
     userName.style.display  = "none";
   }
 };
- 
+
 // ── CLOUDINARY ────────────────────────────────────────────────────────────────
 async function uploadImage(file, folder) {
   if (!file) return "";
@@ -134,14 +111,14 @@ async function uploadImage(file, folder) {
   const data = await res.json();
   return data.secure_url || "";
 }
- 
+
 // ── SELL LISTINGS ─────────────────────────────────────────────────────────────
 const listingsRef = collection(db, "listings");
 onSnapshot(query(listingsRef, orderBy("createdAt", "desc")), snapshot => {
   window._listings = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
   if (window._activeTab === "sell") window.renderListings();
 });
- 
+
 window.postItem = async () => {
   const user = window._currentUser;
   if (!user) { window.showToast("🔐 Log in with IITM email first!", "error"); return; }
@@ -181,7 +158,7 @@ window.postItem = async () => {
   } catch (e) { console.error(e); window.showToast("Failed to post. Try again.", "error"); }
   btn.disabled = false; btn.innerHTML = "🚀 Post Item";
 };
- 
+
 window.deleteListing = async (id) => {
   if (!confirm("Remove this listing?")) return;
   try {
@@ -190,14 +167,14 @@ window.deleteListing = async (id) => {
     window.showToast("🗑 Listing removed");
   } catch(e) { window.showToast("Couldn't delete.", "error"); }
 };
- 
+
 // ── RENTALS ───────────────────────────────────────────────────────────────────
 const rentalsRef = collection(db, "rentals");
 onSnapshot(query(rentalsRef, orderBy("createdAt", "desc")), snapshot => {
   window._rentals = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
   if (window._activeTab === "rent") window.renderRentals();
 });
- 
+
 window.postRental = async () => {
   const user = window._currentUser;
   if (!user) { window.showToast("🔐 Log in with IITM email first!", "error"); return; }
@@ -231,7 +208,7 @@ window.postRental = async () => {
   } catch (e) { console.error(e); window.showToast("Failed to post. Try again.", "error"); }
   btn.disabled = false; btn.innerHTML = "🔑 List for Rent";
 };
- 
+
 window.deleteRental = async (id) => {
   if (!confirm("Remove this rental?")) return;
   try {
@@ -240,14 +217,14 @@ window.deleteRental = async (id) => {
     window.showToast("🗑 Rental removed");
   } catch(e) { window.showToast("Couldn't delete.", "error"); }
 };
- 
+
 // ── LOST & FOUND ──────────────────────────────────────────────────────────────
 const lfRef = collection(db, "lostfound");
 onSnapshot(query(lfRef, orderBy("createdAt", "desc")), snapshot => {
   window._lf = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
   if (window._activeTab === "lf") window.renderLF();
 });
- 
+
 window.postLF = async () => {
   const user = window._currentUser;
   if (!user) { window.showToast("🔐 Log in with IITM email first!", "error"); return; }
@@ -279,7 +256,7 @@ window.postLF = async () => {
   } catch(e) { console.error(e); window.showToast("Failed to post. Try again.", "error"); }
   btn.disabled = false; btn.innerHTML = "📢 Post";
 };
- 
+
 window.deleteLF = async (id) => {
   if (!confirm("Mark as resolved & remove?")) return;
   try {
@@ -288,7 +265,7 @@ window.deleteLF = async (id) => {
     window.showToast("✅ Marked as resolved!");
   } catch(e) { window.showToast("Couldn't delete.", "error"); }
 };
- 
+
 // ── AI DESCRIPTION ────────────────────────────────────────────────────────────
 window.generateDesc = async (isRental) => {
   const titleId = isRental ? "rTitle" : "fTitle";
@@ -325,7 +302,7 @@ window.generateDesc = async (isRental) => {
   btn.disabled = false; btn.innerHTML = "✨ AI";
 };
 </script>
- 
+
 <style>
 :root {
   --bg: #080a10;
@@ -374,11 +351,11 @@ body.mode-lf {
     radial-gradient(ellipse 80% 50% at 20% 10%, rgba(45,212,191,0.10) 0%, transparent 60%),
     radial-gradient(ellipse 60% 40% at 80% 80%, rgba(45,212,191,0.05) 0%, transparent 60%);
 }
- 
+
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
- 
+
 /* ── NAV ── */
 nav {
   display: flex; align-items: center; justify-content: space-between;
@@ -401,7 +378,7 @@ body.mode-lf .logo span { color: var(--teal); }
 @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(.8)} }
 .nav-right { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 #userName { font-size: 14px; }
- 
+
 /* ── BUTTONS ── */
 .btn { padding: 8px 18px; border-radius: 10px; border: none; cursor: pointer; font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 500; transition: all 0.2s cubic-bezier(.34,1.56,.64,1); display: inline-flex; align-items: center; gap: 6px; }
 .btn-glass { background: var(--glass); color: var(--text); border: 1px solid var(--border); }
@@ -414,14 +391,14 @@ body.mode-lf .logo span { color: var(--teal); }
 .btn-rent:hover { background: rgba(168,85,247,0.25); transform: translateY(-1px); box-shadow: 0 8px 24px rgba(168,85,247,0.2); }
 .btn-lf { background: var(--teal-dim); color: var(--teal); border: 1px solid var(--teal-border); }
 .btn-lf:hover { background: rgba(45,212,191,0.25); transform: translateY(-1px); box-shadow: 0 8px 24px rgba(45,212,191,0.2); }
- 
+
 /* ── TABS ── */
 .tab-row { display: flex; gap: 4px; max-width: 1100px; margin: 28px auto 0; padding: 0 28px; }
 .tab-btn { padding: 10px 24px; border-radius: 12px; border: 1px solid var(--border); background: var(--glass); color: var(--muted); font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.25s; font-family: 'DM Sans', sans-serif; }
 .tab-btn.active.sell { background: var(--accent); color: #111; border-color: var(--accent); font-weight: 700; }
 .tab-btn.active.rent { background: var(--purple); color: white; border-color: var(--purple); font-weight: 700; box-shadow: 0 4px 20px rgba(168,85,247,0.3); }
 .tab-btn.active.lf { background: var(--teal); color: #111; border-color: var(--teal); font-weight: 700; box-shadow: 0 4px 20px rgba(45,212,191,0.3); }
- 
+
 /* ── HERO ── */
 .hero { padding: 20px 28px 24px; max-width: 1100px; margin: 0 auto; }
 .hero h1 { font-family: 'Syne', sans-serif; font-weight: 800; font-size: clamp(24px, 4.5vw, 44px); line-height: 1.1; transition: all 0.4s ease; }
@@ -429,7 +406,7 @@ body.mode-lf .logo span { color: var(--teal); }
 body.mode-rent .hero h1 em { color: var(--purple); }
 body.mode-lf .hero h1 em { color: var(--teal); }
 .hero p { color: var(--muted); margin-top: 8px; font-size: 15px; }
- 
+
 /* ── CONTROLS ── */
 .controls { max-width: 1100px; margin: 0 auto; padding: 0 28px 8px; }
 .search-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
@@ -440,7 +417,7 @@ body.mode-lf .search-input:focus { border-color: var(--teal); }
 .search-input::placeholder { color: var(--muted); }
 .sort-select { background: var(--glass); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 13px; outline: none; cursor: pointer; }
 .sort-select option { background: #1a1d2e; }
- 
+
 /* Chips */
 .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
 .chip { padding: 7px 16px; border-radius: 20px; border: 1px solid var(--border); background: var(--glass); color: var(--muted); font-size: 13px; cursor: pointer; transition: all 0.2s cubic-bezier(.34,1.56,.64,1); }
@@ -448,17 +425,17 @@ body.mode-lf .search-input:focus { border-color: var(--teal); }
 .chip.active { background: var(--accent); color: #111; border-color: var(--accent); font-weight: 600; transform: scale(1.04); }
 body.mode-rent .chip.active { background: var(--purple); color: white; border-color: var(--purple); }
 body.mode-lf .chip.active { background: var(--teal); color: #111; border-color: var(--teal); }
- 
+
 /* Stats */
 .stats { display: flex; gap: 24px; max-width: 1100px; margin: 0 auto; padding: 0 28px 24px; flex-wrap: wrap; }
 .stat { font-size: 13px; color: var(--muted); }
 .stat strong { color: var(--accent); font-family: 'Syne', sans-serif; font-size: 20px; display: block; transition: color 0.4s ease; }
 body.mode-rent .stat strong { color: var(--purple); }
 body.mode-lf .stat strong { color: var(--teal); }
- 
+
 /* ── GRID ── */
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; max-width: 1100px; margin: 0 auto; padding: 0 28px 80px; }
- 
+
 /* ── CARD ── */
 .card {
   background: var(--glass);
@@ -476,7 +453,7 @@ body.mode-lf .stat strong { color: var(--teal); }
 /* Lost & Found card hover — teal glow */
 .lf-card:hover { border-color: rgba(45,212,191,0.5) !important; box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(45,212,191,0.3), 0 0 40px rgba(45,212,191,0.1) !important; }
 @keyframes fadeUp { from { opacity: 0; transform: translateY(20px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
- 
+
 .card-img-wrap { width: 100%; height: 170px; overflow: hidden; background: rgba(255,255,255,0.03); display: flex; align-items: center; justify-content: center; position: relative; }
 .card-img-wrap img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.4s ease; }
 .card:hover .card-img-wrap img { transform: scale(1.08); }
@@ -485,7 +462,7 @@ body.mode-lf .stat strong { color: var(--teal); }
 .sold-badge { position: absolute; top: 10px; right: 10px; background: rgba(248,113,113,0.9); backdrop-filter: blur(8px); color: white; font-size: 10px; font-weight: 700; padding: 3px 10px; border-radius: 20px; }
 /* Rental badge — purple */
 .rent-badge-card { position: absolute; top: 10px; left: 10px; background: rgba(168,85,247,0.85); backdrop-filter: blur(8px); color: white; font-size: 10px; font-weight: 700; padding: 3px 10px; border-radius: 20px; letter-spacing: 0.5px; }
- 
+
 .card-body { padding: 14px; }
 .card-badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; margin-bottom: 8px; background: rgba(245,166,35,0.12); color: var(--accent); border: 1px solid rgba(245,166,35,0.2); }
 /* Rental badge — purple */
@@ -503,7 +480,7 @@ body.mode-lf .stat strong { color: var(--teal); }
 .lf-status { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 15px; color: var(--teal); }
 .lf-badge-card { position: absolute; top: 10px; left: 10px; backdrop-filter: blur(8px); color: #111; font-size: 10px; font-weight: 700; padding: 3px 10px; border-radius: 20px; letter-spacing: 0.5px; }
 .hostel-label { font-size: 11px; color: var(--muted); margin-top: 2px; }
- 
+
 .wa-btn { padding: 7px 12px; border-radius: 10px; background: rgba(37,211,102,0.12); color: #25D366; border: 1px solid rgba(37,211,102,0.2); font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s cubic-bezier(.34,1.56,.64,1); display: flex; align-items: center; gap: 4px; }
 .wa-btn:hover { background: #25D366; color: white; transform: scale(1.08); box-shadow: 0 4px 16px rgba(37,211,102,0.3); }
 /* Rental WA button — purple tint */
@@ -512,13 +489,13 @@ body.mode-lf .stat strong { color: var(--teal); }
 /* Lost & Found WA button — teal tint */
 .lf-card .wa-btn { background: rgba(45,212,191,0.12); color: var(--teal); border-color: rgba(45,212,191,0.2); }
 .lf-card .wa-btn:hover { background: var(--teal); color: #111; box-shadow: 0 4px 16px rgba(45,212,191,0.35); }
- 
+
 /* ── EMPTY ── */
 .empty { grid-column: 1/-1; text-align: center; padding: 80px 20px; }
 .empty-icon { font-size: 56px; margin-bottom: 16px; }
 .empty h3 { font-family: 'Syne', sans-serif; font-size: 20px; margin-bottom: 8px; }
 .empty p { color: var(--muted); font-size: 14px; }
- 
+
 /* ── MODAL ── */
 .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 200; align-items: center; justify-content: center; padding: 20px; backdrop-filter: blur(8px); }
 .overlay.open { display: flex; }
@@ -532,7 +509,7 @@ body.mode-lf .stat strong { color: var(--teal); }
 .modal-close:hover { background: rgba(248,113,113,0.2); color: var(--red); border-color: rgba(248,113,113,0.3); transform: scale(1.1); }
 .modal h2 { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 22px; margin-bottom: 4px; }
 .modal-sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
- 
+
 /* ── FORM ── */
 .form-group { margin-bottom: 14px; }
 label { display: block; font-size: 12px; font-weight: 500; color: var(--muted); margin-bottom: 5px; letter-spacing: 0.3px; text-transform: uppercase; }
@@ -558,7 +535,7 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
 .emoji-opt.selected { border-color: var(--accent); background: rgba(245,166,35,0.12); transform: scale(1.2); }
 .login-wall { background: rgba(245,166,35,0.06); border: 1px solid rgba(245,166,35,0.2); border-radius: 14px; padding: 20px; text-align: center; margin-bottom: 16px; display: none; }
 .login-wall p { color: var(--muted); font-size: 14px; margin-bottom: 12px; }
- 
+
 /* ── DETAIL ── */
 .detail-img { width: 100%; height: 220px; border-radius: 16px; overflow: hidden; background: rgba(255,255,255,0.03); display: flex; align-items: center; justify-content: center; margin-bottom: 20px; }
 .detail-img img { width: 100%; height: 100%; object-fit: cover; }
@@ -583,7 +560,7 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
 .btn-wa-large:hover { background: #25D366; color: white; border-color: #25D366; transform: scale(1.02); box-shadow: 0 8px 24px rgba(37,211,102,0.25); }
 .btn-danger { background: transparent; border: 1px solid rgba(255,255,255,0.08); color: var(--muted); padding: 11px; font-size: 14px; border-radius: 12px; width: 100%; margin-top: 8px; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.2s; }
 .btn-danger:hover { border-color: var(--red); color: var(--red); background: rgba(248,113,113,0.06); }
- 
+
 /* ── MISC ── */
 .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(0,0,0,0.2); border-top-color: #111; border-radius: 50%; animation: spin 0.6s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -595,7 +572,7 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
 .btn-submit { width: 100%; padding: 14px; font-size: 15px; border-radius: 14px; justify-content: center; margin-top: 6px; }
 .btn-rent-submit { width: 100%; padding: 14px; font-size: 15px; border-radius: 14px; justify-content: center; margin-top: 6px; background: var(--purple-dim); color: var(--purple); border: 1px solid var(--purple-border); font-family: 'DM Sans', sans-serif; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: all 0.2s cubic-bezier(.34,1.56,.64,1); }
 .btn-rent-submit:hover { background: var(--purple); color: white; box-shadow: 0 8px 24px rgba(168,85,247,0.3); transform: translateY(-1px); }
- 
+
 @media (max-width: 600px) {
   nav { padding: 12px 16px; }
   .hero, .controls, .stats, .tab-row { padding-left: 16px; padding-right: 16px; }
@@ -605,7 +582,7 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
 </style>
 </head>
 <body class="mode-sell">
- 
+
 <!-- NAV -->
 <nav>
   <div class="logo">IITM <span>Bazaar</span><span class="live-dot"></span></div>
@@ -621,20 +598,20 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
     <button class="btn btn-accent" onclick="openPost()">+ Sell Item</button>
   </div>
 </nav>
- 
+
 <!-- TABS -->
 <div class="tab-row">
   <button class="tab-btn active sell" id="tabSell" onclick="switchTab('sell')">🛒 Buy &amp; Sell</button>
   <button class="tab-btn rent" id="tabRent" onclick="switchTab('rent')">🔑 Rentals</button>
   <button class="tab-btn lf" id="tabLF" onclick="switchTab('lf')">🔍 Lost &amp; Found</button>
 </div>
- 
+
 <!-- HERO -->
 <div class="hero">
   <h1 id="heroTitle">Buy &amp; Sell on Campus —<br><em>No spam. Just vibes.</em></h1>
   <p id="heroSub">IITM-only · AI-verified listings · WhatsApp in one tap</p>
 </div>
- 
+
 <!-- CONTROLS -->
 <div class="controls">
   <div class="search-row">
@@ -647,19 +624,19 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
   </div>
   <div class="chips" id="filterChips"></div>
 </div>
- 
+
 <!-- STATS -->
 <div class="stats">
   <div class="stat"><strong id="statCount">—</strong>listings live</div>
   <div class="stat"><strong id="statToday">—</strong>posted today</div>
   <div class="stat"><strong>🤖</strong>AI-verified</div>
 </div>
- 
+
 <!-- GRID -->
 <div class="grid" id="mainGrid">
   <div class="empty"><div class="empty-icon">⏳</div><h3>Loading…</h3><p>Connecting to Firebase</p></div>
 </div>
- 
+
 <!-- ═══ SELL MODAL ═══ -->
 <div class="overlay" id="postOverlay">
   <div class="modal">
@@ -708,7 +685,7 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
     </div>
   </div>
 </div>
- 
+
 <!-- ═══ RENT MODAL ═══ -->
 <div class="overlay" id="rentPostOverlay">
   <div class="modal">
@@ -754,22 +731,22 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
     </div>
   </div>
 </div>
- 
+
 <!-- ═══ SELL DETAIL ═══ -->
 <div class="overlay" id="detailOverlay">
   <div class="modal"><button class="modal-close" onclick="closeDetail()">✕</button><div id="detailContent"></div></div>
 </div>
- 
+
 <!-- ═══ RENT DETAIL ═══ -->
 <div class="overlay" id="rentDetailOverlay">
   <div class="modal"><button class="modal-close" onclick="closeRentDetail()">✕</button><div id="rentDetailContent"></div></div>
 </div>
- 
+
 <!-- ═══ LOST & FOUND DETAIL ═══ -->
 <div class="overlay" id="lfDetailOverlay">
   <div class="modal"><button class="modal-close" onclick="closeLFDetail()">✕</button><div id="lfDetailContent"></div></div>
 </div>
- 
+
 <!-- ═══ LOST & FOUND POST MODAL ═══ -->
 <div class="overlay" id="lfPostOverlay">
   <div class="modal">
@@ -824,13 +801,13 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
     </div>
   </div>
 </div>
- 
+
 <div class="toast" id="toast"></div>
- 
+
 <script>
 const EMOJIS = ["🚲","📚","🛏","💻","📱","🎒","🥼","🍜","🎸","🏋️","🔧","📷","🎧","📦","🪑","🧊"];
 const WA_SVG = `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>`;
- 
+
 window._listings = [];
 window._rentals  = [];
 window._lf       = [];
@@ -841,11 +818,11 @@ window._activeTab = "sell";
 let _activeFilter = "All";
 let _activeRentFilter = "All";
 let _activeLFFilter = "All";
- 
+
 const SELL_CATS = ["All","Cycle","Books","Mattress","Electronics","Lab","Food","Other"];
 const RENT_CATS = ["All","Cycle","Electronics","Books","Sports","Tools","Other"];
 const LF_CATS   = ["All","ID/Cards","Electronics","Wallet/Bag","Keys","Clothing","Books","Other"];
- 
+
 // ── CHIPS ─────────────────────────────────────────────────────────────────────
 function buildChips() {
   const cats   = window._activeTab === "sell" ? SELL_CATS : window._activeTab === "rent" ? RENT_CATS : LF_CATS;
@@ -855,7 +832,7 @@ function buildChips() {
     `<div class="chip ${c===active?"active":""}" onclick="setFilter('${c}')">${icons[c]||""} ${c==="All"?"All Items":c}</div>`
   ).join("");
 }
- 
+
 window.setFilter = cat => {
   if (window._activeTab === "sell") _activeFilter = cat;
   else if (window._activeTab === "rent") _activeRentFilter = cat;
@@ -863,7 +840,7 @@ window.setFilter = cat => {
   buildChips();
   onSearch();
 };
- 
+
 // ── TABS ──────────────────────────────────────────────────────────────────────
 window.switchTab = tab => {
   window._activeTab = tab;
@@ -890,7 +867,7 @@ window.switchTab = tab => {
   else if (tab === "rent") window.renderRentals();
   else window.renderLF();
 };
- 
+
 // ── TIME ──────────────────────────────────────────────────────────────────────
 function timeAgo(ts) {
   if (!ts) return "just now";
@@ -900,7 +877,7 @@ function timeAgo(ts) {
   if (s < 86400) return `${Math.floor(s/3600)}h ago`;
   return `${Math.floor(s/86400)}d ago`;
 }
- 
+
 // ── STATS ─────────────────────────────────────────────────────────────────────
 function buildStats() {
   const today = Date.now() - 86400000;
@@ -908,7 +885,7 @@ function buildStats() {
   document.getElementById("statCount").textContent = all.length;
   document.getElementById("statToday").textContent = all.filter(l => (l.createdAt?.toMillis?.() || 0) > today).length;
 }
- 
+
 // ── SORT ──────────────────────────────────────────────────────────────────────
 function applySort(arr, priceKey) {
   const sort = document.getElementById("sortSelect").value;
@@ -916,7 +893,7 @@ function applySort(arr, priceKey) {
   if (sort === "high") return [...arr].sort((a,b) => (b[priceKey]||0) - (a[priceKey]||0));
   return arr;
 }
- 
+
 // ── RENDER SELL ───────────────────────────────────────────────────────────────
 window.renderListings = () => {
   buildStats();
@@ -946,7 +923,7 @@ window.renderListings = () => {
       </div>
     </div>`).join("");
 };
- 
+
 // ── RENDER RENT ───────────────────────────────────────────────────────────────
 window.renderRentals = () => {
   buildStats();
@@ -976,13 +953,13 @@ window.renderRentals = () => {
       </div>
     </div>`).join("");
 };
- 
+
 window.onSearch = () => {
   if (window._activeTab === "sell") window.renderListings();
   else if (window._activeTab === "rent") window.renderRentals();
   else window.renderLF();
 };
- 
+
 // ── RENDER LOST & FOUND ───────────────────────────────────────────────────────
 window.renderLF = () => {
   buildStats();
@@ -1020,12 +997,11 @@ window.renderLF = () => {
     </div>`;
   }).join("");
 };
- 
+
 // ── LF DETAIL ─────────────────────────────────────────────────────────────────
 window.openLFDetail = id => {
   const l = window._lf.find(x => x.id === id); if (!l) return;
   const isOwner = window._currentUser?.uid === l.posterUid;
-  const isAdmin = window._currentUser?.email === ADMIN_EMAIL;
   const isLost  = l.type === "lost";
   document.getElementById("lfDetailContent").innerHTML = `
     <div class="detail-img">${l.imageUrl ? `<img src="${l.imageUrl}" alt="${l.title}">` : `<span class="detail-img-emoji">${isLost?"😢":"🎉"}</span>`}</div>
@@ -1046,11 +1022,11 @@ window.openLFDetail = id => {
         <div style="font-size:12px;color:var(--muted)">Verified IITM · ${l.hostel}</div></div>
     </div>
     <button class="btn-wa-large" onclick="contactWA('${l.phone}','${l.title}','','lf')">${WA_SVG} ${isLost ? "I found it! WhatsApp" : "It's mine! WhatsApp"}</button>
-    ${(isOwner || isAdmin) ? `<button class="btn-danger" onclick="deleteLF('${l.id}')">✅ ${isAdmin && !isOwner ? "Admin: Remove" : "Mark as Resolved"}</button>` : ""}`;
+    ${isOwner ? `<button class="btn-danger" onclick="deleteLF('${l.id}')">✅ Mark as Resolved</button>` : ""}`;
   document.getElementById("lfDetailOverlay").classList.add("open");
 };
 window.closeLFDetail = () => document.getElementById("lfDetailOverlay").classList.remove("open");
- 
+
 // ── LF POST MODAL ─────────────────────────────────────────────────────────────
 window.openLFPost = () => {
   const user = window._currentUser;
@@ -1060,12 +1036,11 @@ window.openLFPost = () => {
   document.getElementById("lfPostOverlay").classList.add("open");
 };
 window.closeLFPost = () => document.getElementById("lfPostOverlay").classList.remove("open");
- 
+
 // ── DETAIL MODALS ─────────────────────────────────────────────────────────────
 window.openDetail = id => {
   const l = window._listings.find(x => x.id === id); if (!l) return;
   const isOwner = window._currentUser?.uid === l.sellerUid;
-  const isAdmin = window._currentUser?.email === ADMIN_EMAIL;
   document.getElementById("detailContent").innerHTML = `
     <div class="detail-img">${l.imageUrl ? `<img src="${l.imageUrl}" alt="${l.title}">` : `<span class="detail-img-emoji">${l.emoji||"📦"}</span>`}</div>
     <h2 style="font-family:Syne,sans-serif;font-weight:800;font-size:22px;margin-bottom:6px">${l.title}</h2>
@@ -1081,15 +1056,14 @@ window.openDetail = id => {
         <div style="font-size:12px;color:var(--muted)">Verified IITM · ${l.hostel}</div></div>
     </div>
     <button class="btn-wa-large" onclick="contactWA('${l.phone}','${l.title}','${l.price}','sell')">${WA_SVG} Chat on WhatsApp</button>
-    ${(isOwner || isAdmin) ? `<button class="btn-danger" onclick="deleteListing('${l.id}')">🗑 ${isAdmin && !isOwner ? "Admin: Remove" : "Remove my listing"}</button>` : ""}`;
+    ${isOwner ? `<button class="btn-danger" onclick="deleteListing('${l.id}')">🗑 Remove my listing</button>` : ""}`;
   document.getElementById("detailOverlay").classList.add("open");
 };
 window.closeDetail = () => document.getElementById("detailOverlay").classList.remove("open");
- 
+
 window.openRentDetail = id => {
   const r = window._rentals.find(x => x.id === id); if (!r) return;
   const isOwner = window._currentUser?.uid === r.ownerUid;
-  const isAdmin = window._currentUser?.email === ADMIN_EMAIL;
   document.getElementById("rentDetailContent").innerHTML = `
     <div class="detail-img">${r.imageUrl ? `<img src="${r.imageUrl}" alt="${r.title}">` : `<span class="detail-img-emoji">${r.emoji||"📦"}</span>`}</div>
     <h2 style="font-family:Syne,sans-serif;font-weight:800;font-size:22px;margin-bottom:6px">${r.title}</h2>
@@ -1108,11 +1082,11 @@ window.openRentDetail = id => {
         <div style="font-size:12px;color:var(--muted)">Verified IITM · ${r.hostel}</div></div>
     </div>
     <button class="btn-wa-large" onclick="contactWA('${r.phone}','${r.title}','${r.priceDay}','rent')">${WA_SVG} Request to Rent on WhatsApp</button>
-    ${(isOwner || isAdmin) ? `<button class="btn-danger" onclick="deleteRental('${r.id}')">🗑 ${isAdmin && !isOwner ? "Admin: Remove" : "Remove my listing"}</button>` : ""}`;
+    ${isOwner ? `<button class="btn-danger" onclick="deleteRental('${r.id}')">🗑 Remove my listing</button>` : ""}`;
   document.getElementById("rentDetailOverlay").classList.add("open");
 };
 window.closeRentDetail = () => document.getElementById("rentDetailOverlay").classList.remove("open");
- 
+
 // ── POST MODALS ───────────────────────────────────────────────────────────────
 window.openPost = () => {
   const user = window._currentUser;
@@ -1123,7 +1097,7 @@ window.openPost = () => {
   document.getElementById("postOverlay").classList.add("open");
 };
 window.closePost = () => document.getElementById("postOverlay").classList.remove("open");
- 
+
 window.openRentPost = () => {
   const user = window._currentUser;
   document.getElementById("rentLoginWall").style.display = user ? "none" : "block";
@@ -1133,7 +1107,7 @@ window.openRentPost = () => {
   document.getElementById("rentPostOverlay").classList.add("open");
 };
 window.closeRentPost = () => document.getElementById("rentPostOverlay").classList.remove("open");
- 
+
 // ── EMOJI ─────────────────────────────────────────────────────────────────────
 function setupEmoji(gridId, isRental) {
   const sel = isRental ? window._selectedRentalEmoji : window._selectedEmoji;
@@ -1145,7 +1119,7 @@ window.pickEmoji = (e, isRental) => {
   if (isRental) window._selectedRentalEmoji = e; else window._selectedEmoji = e;
   setupEmoji(isRental?"rentEmojiGrid":"emojiGrid", isRental);
 };
- 
+
 // ── IMAGE PREVIEW ─────────────────────────────────────────────────────────────
 window.previewImg = (inputId, previewId) => {
   const input = document.getElementById(inputId);
@@ -1156,7 +1130,7 @@ window.previewImg = (inputId, previewId) => {
     reader.readAsDataURL(input.files[0]);
   }
 };
- 
+
 // ── WHATSAPP ──────────────────────────────────────────────────────────────────
 window.contactWA = (phone, title, price, type) => {
   const msg = type === "rent"
@@ -1166,7 +1140,7 @@ window.contactWA = (phone, title, price, type) => {
     : encodeURIComponent(`Hi! I saw your listing on IITM Bazaar:\n*${title}* — ₹${price}\n\nIs it still available?`);
   window.open(`https://wa.me/${phone}?text=${msg}`, "_blank");
 };
- 
+
 // ── TOAST ─────────────────────────────────────────────────────────────────────
 window.showToast = (msg, type="success") => {
   const t = document.getElementById("toast");
@@ -1174,14 +1148,14 @@ window.showToast = (msg, type="success") => {
   t.className = `toast ${type==="error"?"error":""} show`;
   setTimeout(() => t.classList.remove("show"), 3500);
 };
- 
+
 // Close overlays on bg click
 ["postOverlay","rentPostOverlay","detailOverlay","rentDetailOverlay","lfPostOverlay","lfDetailOverlay"].forEach(id => {
   document.getElementById(id).addEventListener("click", function(e) {
     if (e.target === this) this.classList.remove("open");
   });
 });
- 
+
 // ── INIT ──────────────────────────────────────────────────────────────────────
 buildChips();
 buildStats();
