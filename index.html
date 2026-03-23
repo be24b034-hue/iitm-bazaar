@@ -100,12 +100,12 @@ window.updateAuthUI = function(user) {
 };
 
 // ── CLOUDINARY ────────────────────────────────────────────────────────────────
-async function uploadImage(file, folder) {
+async function uploadImage(file) {
   if (!file) return "";
   const fd = new FormData();
   fd.append("file", file);
   fd.append("upload_preset", CLOUDINARY_PRESET);
-  fd.append("folder", folder);
+  fd.append("folder", "iitm-bazaar");
   const res  = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`, { method: "POST", body: fd });
   const data = await res.json();
   if (data.error) {
@@ -115,13 +115,23 @@ async function uploadImage(file, folder) {
   return data.secure_url || "";
 }
 
-// ── SELL LISTINGS ─────────────────────────────────────────────────────────────
+// ── SINGLE COLLECTION — "listings" with type field ───────────────────────────
+// This ensures all three features use the same Firestore collection that is
+// already covered by your security rules. Client-side filtering splits them.
 const listingsRef = collection(db, "listings");
+
 onSnapshot(query(listingsRef, orderBy("createdAt", "desc")), snapshot => {
-  window._listings = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-  if (window._activeTab === "sell") window.renderListings();
+  const all = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+  // Backwards-compatible: docs without a type field treated as sell listings
+  window._listings = all.filter(d => !d.type || d.type === "sell");
+  window._rentals  = all.filter(d => d.type === "rent");
+  window._lf       = all.filter(d => d.type === "lf");
+  if      (window._activeTab === "sell") window.renderListings();
+  else if (window._activeTab === "rent") window.renderRentals();
+  else                                   window.renderLF();
 });
 
+// ── SELL LISTINGS ─────────────────────────────────────────────────────────────
 window.postItem = async () => {
   const user = window._currentUser;
   if (!user) { window.showToast("🔐 Log in with IITM email first!", "error"); return; }
@@ -144,8 +154,9 @@ window.postItem = async () => {
   const btn = document.getElementById("submitBtn");
   btn.disabled = true; btn.innerHTML = `<span class="spinner"></span> Posting…`;
   try {
-    const imageUrl = await uploadImage(file, "iitm-bazaar");
+    const imageUrl = await uploadImage(file);
     await addDoc(listingsRef, {
+      type: "sell",
       title, price: Number(price), cat,
       emoji: window._selectedEmoji || "📦",
       desc, hostel, cond, phone, imageUrl,
@@ -172,12 +183,6 @@ window.deleteListing = async (id) => {
 };
 
 // ── RENTALS ───────────────────────────────────────────────────────────────────
-const rentalsRef = collection(db, "rentals");
-onSnapshot(query(rentalsRef, orderBy("createdAt", "desc")), snapshot => {
-  window._rentals = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-  if (window._activeTab === "rent") window.renderRentals();
-});
-
 window.postRental = async () => {
   const user = window._currentUser;
   if (!user) { window.showToast("🔐 Log in with IITM email first!", "error"); return; }
@@ -195,8 +200,9 @@ window.postRental = async () => {
   const btn = document.getElementById("rentSubmitBtn");
   btn.disabled = true; btn.innerHTML = `<span class="spinner"></span> Posting…`;
   try {
-    const imageUrl = await uploadImage(file, "iitm-bazaar-rentals");
-    await addDoc(rentalsRef, {
+    const imageUrl = await uploadImage(file);
+    await addDoc(listingsRef, {
+      type: "rent",
       title, priceDay: Number(priceDay), cat,
       emoji: window._selectedRentalEmoji || "📦",
       desc, hostel, minDays: Number(minDays), phone, imageUrl,
@@ -215,19 +221,13 @@ window.postRental = async () => {
 window.deleteRental = async (id) => {
   if (!confirm("Remove this rental?")) return;
   try {
-    await deleteDoc(doc(db, "rentals", id));
+    await deleteDoc(doc(db, "listings", id));
     window.closeRentDetail();
     window.showToast("🗑 Rental removed");
   } catch(e) { window.showToast("Couldn't delete.", "error"); }
 };
 
 // ── LOST & FOUND ──────────────────────────────────────────────────────────────
-const lfRef = collection(db, "lostfound");
-onSnapshot(query(lfRef, orderBy("createdAt", "desc")), snapshot => {
-  window._lf = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-  if (window._activeTab === "lf") window.renderLF();
-});
-
 window.postLF = async () => {
   const user = window._currentUser;
   if (!user) { window.showToast("🔐 Log in with IITM email first!", "error"); return; }
@@ -244,9 +244,10 @@ window.postLF = async () => {
   const btn = document.getElementById("lfSubmitBtn");
   btn.disabled = true; btn.innerHTML = `<span class="spinner"></span> Posting…`;
   try {
-    const imageUrl = await uploadImage(file, "iitm-bazaar-lf");
-    await addDoc(lfRef, {
-      title, type, cat, desc, hostel, loc, phone, imageUrl,
+    const imageUrl = await uploadImage(file);
+    await addDoc(listingsRef, {
+      type: "lf",
+      title, lfType: type, cat, desc, hostel, loc, phone, imageUrl,
       posterName: window.getDisplayName(user),
       posterEmail: user.email, posterUid: user.uid,
       resolved: false, createdAt: serverTimestamp()
@@ -263,7 +264,7 @@ window.postLF = async () => {
 window.deleteLF = async (id) => {
   if (!confirm("Mark as resolved & remove?")) return;
   try {
-    await deleteDoc(doc(db, "lostfound", id));
+    await deleteDoc(doc(db, "listings", id));
     window.closeLFDetail();
     window.showToast("✅ Marked as resolved!");
   } catch(e) { window.showToast("Couldn't delete.", "error"); }
@@ -451,13 +452,11 @@ body.mode-lf .stat strong { color: var(--teal); }
 .card:hover { transform: scale(1.03) translateY(-4px); box-shadow: 0 16px 48px rgba(0,0,0,0.4), 0 0 0 1px rgba(245,166,35,0.3); border-color: rgba(245,166,35,0.4); background: var(--glass-hover); }
 .card:hover::before { opacity: 1; }
 
-/* ── FIX: Rental card hover — purple glow, same subtle zoom as sell ── */
 .rental-card:hover {
   border-color: rgba(168,85,247,0.5) !important;
   box-shadow: 0 16px 48px rgba(0,0,0,0.4), 0 0 0 1px rgba(168,85,247,0.3), 0 0 32px rgba(168,85,247,0.08) !important;
 }
 
-/* ── FIX: Lost & Found card hover — teal glow, same subtle zoom as sell ── */
 .lf-card:hover {
   border-color: rgba(45,212,191,0.5) !important;
   box-shadow: 0 16px 48px rgba(0,0,0,0.4), 0 0 0 1px rgba(45,212,191,0.3), 0 0 32px rgba(45,212,191,0.08) !important;
@@ -533,7 +532,6 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
 #rentPostOverlay .upload-zone:hover { border-color: var(--purple); background: rgba(168,85,247,0.04); }
 #lfPostOverlay .upload-zone:hover { border-color: var(--teal); background: rgba(45,212,191,0.04); }
 
-/* ── FIX: All 3 image previews get the same treatment ── */
 #imagePreview, #rImagePreview, #lfImagePreview {
   width: 100%;
   border-radius: 12px;
@@ -985,7 +983,7 @@ window.renderLF = () => {
   });
   if (!filtered.length) { grid.innerHTML = `<div class="empty"><div class="empty-icon">🔍</div><h3>Nothing posted yet</h3><p>Lost or found something? Post it!</p></div>`; return; }
   grid.innerHTML = filtered.map((l,i) => {
-    const isLost  = l.type === "lost";
+    const isLost  = l.lfType === "lost";
     const badgeBg = isLost ? "rgba(248,113,113,0.85)" : "rgba(45,212,191,0.85)";
     const label   = isLost ? "LOST" : "FOUND";
     const statusColor = isLost ? "var(--red)" : "var(--teal)";
@@ -1015,7 +1013,7 @@ window.renderLF = () => {
 window.openLFDetail = id => {
   const l = window._lf.find(x => x.id === id); if (!l) return;
   const isOwner = window._currentUser?.uid === l.posterUid;
-  const isLost  = l.type === "lost";
+  const isLost  = l.lfType === "lost";
   document.getElementById("lfDetailContent").innerHTML = `
     <div class="detail-img">${l.imageUrl ? `<img src="${l.imageUrl}" alt="${l.title}">` : `<span class="detail-img-emoji">${isLost?"😢":"🎉"}</span>`}</div>
     <h2 style="font-family:Syne,sans-serif;font-weight:800;font-size:22px;margin-bottom:6px">${l.title}</h2>
