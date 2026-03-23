@@ -8,7 +8,7 @@
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
+import { getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore, collection, addDoc, deleteDoc, doc, query, orderBy, onSnapshot, serverTimestamp }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
@@ -48,28 +48,19 @@ function detectFakeListing(data) {
   return null;
 }
 
-// ── ADMIN ─────────────────────────────────────────────────────────────────────
-const ADMIN_EMAIL = "be24b034@smail.iitm.ac.in";
-window.isAdmin = (user) => (user || window._currentUser)?.email === ADMIN_EMAIL;
-
 // ── AUTH ──────────────────────────────────────────────────────────────────────
+const ADMIN_EMAIL = "be24b034@smail.iitm.ac.in";
+window.ADMIN_EMAIL = ADMIN_EMAIL; // expose to regular script
+
 window.signIn = async () => {
+  if (window._currentUser) return;
+  // Use redirect login — works on ALL networks including IITM WiFi,
+  // all browsers, no popup issues. Page goes to Google then comes back.
   try {
-    const result = await signInWithPopup(auth, provider);
-    const email  = result.user.email;
-    if (!email.endsWith("@smail.iitm.ac.in") && !email.endsWith("@iitm.ac.in")) {
-      await signOut(auth);
-      window.showToast("❌ Only IITM emails allowed!", "error");
-      return;
-    }
-    const name = (result.user.displayName || email.split("@")[0]).split(" ")[0];
-    window.showToast("✅ Hi " + name + "! Welcome 👋");
-  } catch (e) {
-    if (e.code === "auth/popup-closed-by-user" || e.code === "auth/cancelled-popup-request") return;
-    // If user is already signed in despite the error, don't show anything
-    if (auth.currentUser) return;
-    console.error(e);
-    window.showToast("Login failed. Please try again.", "error");
+    await signInWithRedirect(auth, provider);
+  } catch(e) {
+    console.error("Redirect login error:", e);
+    window.showToast("Login error. Try refreshing.", "error");
   }
 };
 
@@ -77,6 +68,25 @@ window.signOutUser = async () => {
   await signOut(auth);
   window.showToast("👋 Logged out");
 };
+
+// ── This runs on EVERY page load — catches the return from Google redirect ──
+getRedirectResult(auth).then(async result => {
+  if (!result?.user) return; // normal page load, no redirect happened
+  const email = result.user.email;
+  if (!email.endsWith("@smail.iitm.ac.in") && !email.endsWith("@iitm.ac.in")) {
+    await signOut(auth);
+    window.showToast("❌ Only @smail.iitm.ac.in emails allowed!", "error");
+    return;
+  }
+  const name = (result.user.displayName || email.split("@")[0]).split(" ")[0];
+  window.showToast("✅ Hi " + name + "! Welcome 👋");
+}).catch(e => {
+  // auth/unauthorized-domain means Vercel URL not in Firebase whitelist
+  if (e.code === "auth/unauthorized-domain") {
+    window.showToast("⚙️ Admin: Add this domain to Firebase Auth!", "error");
+  }
+  console.error("Redirect result error:", e.code);
+});
 
 onAuthStateChanged(auth, user => {
   window._currentUser = user;
@@ -95,11 +105,17 @@ window.updateAuthUI = function(user) {
   if (!loginBtn) return;
   if (user) {
     const name = window.getDisplayName(user);
-    const adminBadge = window.isAdmin(user) ? `&nbsp;<span style="background:rgba(245,166,35,0.2);color:var(--accent);font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;border:1px solid rgba(245,166,35,0.3)">ADMIN</span>` : "";
+    const isAdmin = user.email === ADMIN_EMAIL;
     loginBtn.style.display  = "none";
     logoutBtn.style.display = "flex";
     userName.style.display  = "inline-flex";
-    userName.innerHTML = `<span style="opacity:.6;font-size:13px">Hi,</span>&nbsp;<b style="color:var(--accent)">${name}</b>${adminBadge}&nbsp;👋`;
+    if (isAdmin) {
+      // Admin: name in golden colour, "Admin" label next to it
+      userName.innerHTML = `<span style="opacity:.6;font-size:13px">Hi,</span>&nbsp;<b style="color:#f5a623;text-shadow:0 0 12px rgba(245,166,35,0.6)">${name}</b>&nbsp;<span style="color:#f5a623;font-size:12px;font-weight:700;opacity:.9">✦ Admin</span>`;
+    } else {
+      // Normal user: plain white name
+      userName.innerHTML = `<span style="opacity:.6;font-size:13px">Hi,</span>&nbsp;<b style="color:var(--text)">${name}</b>&nbsp;👋`;
+    }
   } else {
     loginBtn.style.display  = "flex";
     logoutBtn.style.display = "none";
@@ -569,7 +585,7 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
 .btn-danger:hover { border-color: var(--red); color: var(--red); background: rgba(248,113,113,0.06); }
 
 /* ── MISC ── */
-.spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(0,0,0,0.2); border-top-color: #111; border-radius: 50%; animation: spin 0.6s linear infinite; }
+.spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.2); border-top-color: white; border-radius: 50%; animation: spin 0.6s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes shake { 0%,100%{transform:translateX(0)} 20%,60%{transform:translateX(-8px)} 40%,80%{transform:translateX(8px)} }
 .shake { animation: shake 0.5s ease; }
@@ -595,7 +611,7 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
   <div class="logo">IITM <span>Bazaar</span><span class="live-dot"></span></div>
   <div class="nav-right">
     <span id="userName" style="display:none"></span>
-    <button class="btn btn-login" id="loginBtn" onclick="signIn()" style="display:none">
+    <button class="btn btn-login" id="loginBtn" onclick="signIn()" >
       <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#4285F4" d="M44.5 20H24v8.5h11.8C34.7 33.9 29.9 37 24 37c-7.2 0-13-5.8-13-13s5.8-13 13-13c3.1 0 5.9 1.1 8.1 2.9l6.4-6.4C34.6 4.1 29.6 2 24 2 11.8 2 2 11.8 2 24s9.8 22 22 22c11 0 21-8 21-22 0-1.3-.2-2.7-.5-4z"/></svg>
       Login with IITM
     </button>
@@ -1009,7 +1025,7 @@ window.renderLF = () => {
 window.openLFDetail = id => {
   const l = window._lf.find(x => x.id === id); if (!l) return;
   const isOwner = window._currentUser?.uid === l.posterUid;
-  const canDelete = isOwner || window.isAdmin(window._currentUser);
+  const isAdmin = window._currentUser?.email === window.ADMIN_EMAIL;
   const isLost  = l.type === "lost";
   document.getElementById("lfDetailContent").innerHTML = `
     <div class="detail-img">${l.imageUrl ? `<img src="${l.imageUrl}" alt="${l.title}">` : `<span class="detail-img-emoji">${isLost?"😢":"🎉"}</span>`}</div>
@@ -1030,7 +1046,8 @@ window.openLFDetail = id => {
         <div style="font-size:12px;color:var(--muted)">Verified IITM · ${l.hostel}</div></div>
     </div>
     <button class="btn-wa-large" onclick="contactWA('${l.phone}','${l.title}','','lf')">${WA_SVG} ${isLost ? "I found it! WhatsApp" : "It's mine! WhatsApp"}</button>
-    ${canDelete ? `<button class="btn-danger" onclick="deleteLF('${l.id}')">✅ Mark as Resolved</button>` : ""}`;
+    ${isOwner ? `<button class="btn-danger" onclick="deleteLF('${l.id}')">✅ Mark as Resolved</button>` : ""}
+    ${isAdmin && !isOwner ? `<button class="btn-danger" style="border-color:rgba(245,166,35,0.3);color:#f5a623;" onclick="deleteLF('${l.id}')">✦ Admin: Delete this post</button>` : ""}`;
   document.getElementById("lfDetailOverlay").classList.add("open");
 };
 window.closeLFDetail = () => document.getElementById("lfDetailOverlay").classList.remove("open");
@@ -1049,7 +1066,7 @@ window.closeLFPost = () => document.getElementById("lfPostOverlay").classList.re
 window.openDetail = id => {
   const l = window._listings.find(x => x.id === id); if (!l) return;
   const isOwner = window._currentUser?.uid === l.sellerUid;
-  const canDelete = isOwner || window.isAdmin(window._currentUser);
+  const isAdmin = window._currentUser?.email === window.ADMIN_EMAIL;
   document.getElementById("detailContent").innerHTML = `
     <div class="detail-img">${l.imageUrl ? `<img src="${l.imageUrl}" alt="${l.title}">` : `<span class="detail-img-emoji">${l.emoji||"📦"}</span>`}</div>
     <h2 style="font-family:Syne,sans-serif;font-weight:800;font-size:22px;margin-bottom:6px">${l.title}</h2>
@@ -1065,7 +1082,8 @@ window.openDetail = id => {
         <div style="font-size:12px;color:var(--muted)">Verified IITM · ${l.hostel}</div></div>
     </div>
     <button class="btn-wa-large" onclick="contactWA('${l.phone}','${l.title}','${l.price}','sell')">${WA_SVG} Chat on WhatsApp</button>
-    ${canDelete ? `<button class="btn-danger" onclick="deleteListing('${l.id}')">🗑 Remove listing</button>` : ""}`;
+    ${isOwner ? `<button class="btn-danger" onclick="deleteListing('${l.id}')">🗑 Remove my listing</button>` : ""}
+    ${isAdmin && !isOwner ? `<button class="btn-danger" style="border-color:rgba(245,166,35,0.3);color:#f5a623;" onclick="deleteListing('${l.id}')">✦ Admin: Delete this listing</button>` : ""}`;
   document.getElementById("detailOverlay").classList.add("open");
 };
 window.closeDetail = () => document.getElementById("detailOverlay").classList.remove("open");
@@ -1073,7 +1091,7 @@ window.closeDetail = () => document.getElementById("detailOverlay").classList.re
 window.openRentDetail = id => {
   const r = window._rentals.find(x => x.id === id); if (!r) return;
   const isOwner = window._currentUser?.uid === r.ownerUid;
-  const canDelete = isOwner || window.isAdmin(window._currentUser);
+  const isAdmin = window._currentUser?.email === window.ADMIN_EMAIL;
   document.getElementById("rentDetailContent").innerHTML = `
     <div class="detail-img">${r.imageUrl ? `<img src="${r.imageUrl}" alt="${r.title}">` : `<span class="detail-img-emoji">${r.emoji||"📦"}</span>`}</div>
     <h2 style="font-family:Syne,sans-serif;font-weight:800;font-size:22px;margin-bottom:6px">${r.title}</h2>
@@ -1092,7 +1110,8 @@ window.openRentDetail = id => {
         <div style="font-size:12px;color:var(--muted)">Verified IITM · ${r.hostel}</div></div>
     </div>
     <button class="btn-wa-large" onclick="contactWA('${r.phone}','${r.title}','${r.priceDay}','rent')">${WA_SVG} Request to Rent on WhatsApp</button>
-    ${canDelete ? `<button class="btn-danger" onclick="deleteRental('${r.id}')">🗑 Remove listing</button>` : ""}`;
+    ${isOwner ? `<button class="btn-danger" onclick="deleteRental('${r.id}')">🗑 Remove my listing</button>` : ""}
+    ${isAdmin && !isOwner ? `<button class="btn-danger" style="border-color:rgba(245,166,35,0.3);color:#f5a623;" onclick="deleteRental('${r.id}')">✦ Admin: Delete this listing</button>` : ""}`;
   document.getElementById("rentDetailOverlay").classList.add("open");
 };
 window.closeRentDetail = () => document.getElementById("rentDetailOverlay").classList.remove("open");
