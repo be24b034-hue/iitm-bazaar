@@ -50,7 +50,7 @@ function detectFakeListing(data) {
 
 // ── ADMIN ─────────────────────────────────────────────────────────────────────
 const ADMIN_EMAIL = "be24b034@smail.iitm.ac.in";
-window.isAdmin = () => window._currentUser?.email === ADMIN_EMAIL;
+window.isAdmin = (user) => (user || window._currentUser)?.email === ADMIN_EMAIL;
 
 // ── AUTH ──────────────────────────────────────────────────────────────────────
 window.signIn = async () => {
@@ -95,7 +95,7 @@ window.updateAuthUI = function(user) {
   if (!loginBtn) return;
   if (user) {
     const name = window.getDisplayName(user);
-    const adminBadge = window.isAdmin() ? `&nbsp;<span style="background:rgba(245,166,35,0.2);color:var(--accent);font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;border:1px solid rgba(245,166,35,0.3)">ADMIN</span>` : "";
+    const adminBadge = window.isAdmin(user) ? `&nbsp;<span style="background:rgba(245,166,35,0.2);color:var(--accent);font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;border:1px solid rgba(245,166,35,0.3)">ADMIN</span>` : "";
     loginBtn.style.display  = "none";
     logoutBtn.style.display = "flex";
     userName.style.display  = "inline-flex";
@@ -1009,7 +1009,7 @@ window.renderLF = () => {
 window.openLFDetail = id => {
   const l = window._lf.find(x => x.id === id); if (!l) return;
   const isOwner = window._currentUser?.uid === l.posterUid;
-  const canDelete = isOwner || window.isAdmin();
+  const canDelete = isOwner || window.isAdmin(window._currentUser);
   const isLost  = l.type === "lost";
   document.getElementById("lfDetailContent").innerHTML = `
     <div class="detail-img">${l.imageUrl ? `<img src="${l.imageUrl}" alt="${l.title}">` : `<span class="detail-img-emoji">${isLost?"😢":"🎉"}</span>`}</div>
@@ -1049,7 +1049,7 @@ window.closeLFPost = () => document.getElementById("lfPostOverlay").classList.re
 window.openDetail = id => {
   const l = window._listings.find(x => x.id === id); if (!l) return;
   const isOwner = window._currentUser?.uid === l.sellerUid;
-  const canDelete = isOwner || window.isAdmin();
+  const canDelete = isOwner || window.isAdmin(window._currentUser);
   document.getElementById("detailContent").innerHTML = `
     <div class="detail-img">${l.imageUrl ? `<img src="${l.imageUrl}" alt="${l.title}">` : `<span class="detail-img-emoji">${l.emoji||"📦"}</span>`}</div>
     <h2 style="font-family:Syne,sans-serif;font-weight:800;font-size:22px;margin-bottom:6px">${l.title}</h2>
@@ -1073,7 +1073,7 @@ window.closeDetail = () => document.getElementById("detailOverlay").classList.re
 window.openRentDetail = id => {
   const r = window._rentals.find(x => x.id === id); if (!r) return;
   const isOwner = window._currentUser?.uid === r.ownerUid;
-  const canDelete = isOwner || window.isAdmin();
+  const canDelete = isOwner || window.isAdmin(window._currentUser);
   document.getElementById("rentDetailContent").innerHTML = `
     <div class="detail-img">${r.imageUrl ? `<img src="${r.imageUrl}" alt="${r.title}">` : `<span class="detail-img-emoji">${r.emoji||"📦"}</span>`}</div>
     <h2 style="font-family:Syne,sans-serif;font-weight:800;font-size:22px;margin-bottom:6px">${r.title}</h2>
