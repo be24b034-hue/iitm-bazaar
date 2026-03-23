@@ -48,6 +48,10 @@ function detectFakeListing(data) {
   return null;
 }
 
+// ── ADMIN ─────────────────────────────────────────────────────────────────────
+const ADMIN_EMAIL = "be24b034@smail.iitm.ac.in";
+window.isAdmin = () => window._currentUser?.email === ADMIN_EMAIL;
+
 // ── AUTH ──────────────────────────────────────────────────────────────────────
 window.signIn = async () => {
   try {
@@ -62,8 +66,10 @@ window.signIn = async () => {
     window.showToast("✅ Hi " + name + "! Welcome 👋");
   } catch (e) {
     if (e.code === "auth/popup-closed-by-user" || e.code === "auth/cancelled-popup-request") return;
+    // If user is already signed in despite the error, don't show anything
+    if (auth.currentUser) return;
     console.error(e);
-    window.showToast("Login failed. Use mobile data, not insti WiFi!", "error");
+    window.showToast("Login failed. Please try again.", "error");
   }
 };
 
@@ -89,10 +95,11 @@ window.updateAuthUI = function(user) {
   if (!loginBtn) return;
   if (user) {
     const name = window.getDisplayName(user);
+    const adminBadge = window.isAdmin() ? `&nbsp;<span style="background:rgba(245,166,35,0.2);color:var(--accent);font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;border:1px solid rgba(245,166,35,0.3)">ADMIN</span>` : "";
     loginBtn.style.display  = "none";
     logoutBtn.style.display = "flex";
     userName.style.display  = "inline-flex";
-    userName.innerHTML = `<span style="opacity:.6;font-size:13px">Hi,</span>&nbsp;<b style="color:var(--accent)">${name}</b>&nbsp;👋`;
+    userName.innerHTML = `<span style="opacity:.6;font-size:13px">Hi,</span>&nbsp;<b style="color:var(--accent)">${name}</b>${adminBadge}&nbsp;👋`;
   } else {
     loginBtn.style.display  = "flex";
     logoutBtn.style.display = "none";
@@ -1002,6 +1009,7 @@ window.renderLF = () => {
 window.openLFDetail = id => {
   const l = window._lf.find(x => x.id === id); if (!l) return;
   const isOwner = window._currentUser?.uid === l.posterUid;
+  const canDelete = isOwner || window.isAdmin();
   const isLost  = l.type === "lost";
   document.getElementById("lfDetailContent").innerHTML = `
     <div class="detail-img">${l.imageUrl ? `<img src="${l.imageUrl}" alt="${l.title}">` : `<span class="detail-img-emoji">${isLost?"😢":"🎉"}</span>`}</div>
@@ -1022,7 +1030,7 @@ window.openLFDetail = id => {
         <div style="font-size:12px;color:var(--muted)">Verified IITM · ${l.hostel}</div></div>
     </div>
     <button class="btn-wa-large" onclick="contactWA('${l.phone}','${l.title}','','lf')">${WA_SVG} ${isLost ? "I found it! WhatsApp" : "It's mine! WhatsApp"}</button>
-    ${isOwner ? `<button class="btn-danger" onclick="deleteLF('${l.id}')">✅ Mark as Resolved</button>` : ""}`;
+    ${canDelete ? `<button class="btn-danger" onclick="deleteLF('${l.id}')">✅ Mark as Resolved</button>` : ""}`;
   document.getElementById("lfDetailOverlay").classList.add("open");
 };
 window.closeLFDetail = () => document.getElementById("lfDetailOverlay").classList.remove("open");
@@ -1041,6 +1049,7 @@ window.closeLFPost = () => document.getElementById("lfPostOverlay").classList.re
 window.openDetail = id => {
   const l = window._listings.find(x => x.id === id); if (!l) return;
   const isOwner = window._currentUser?.uid === l.sellerUid;
+  const canDelete = isOwner || window.isAdmin();
   document.getElementById("detailContent").innerHTML = `
     <div class="detail-img">${l.imageUrl ? `<img src="${l.imageUrl}" alt="${l.title}">` : `<span class="detail-img-emoji">${l.emoji||"📦"}</span>`}</div>
     <h2 style="font-family:Syne,sans-serif;font-weight:800;font-size:22px;margin-bottom:6px">${l.title}</h2>
@@ -1056,7 +1065,7 @@ window.openDetail = id => {
         <div style="font-size:12px;color:var(--muted)">Verified IITM · ${l.hostel}</div></div>
     </div>
     <button class="btn-wa-large" onclick="contactWA('${l.phone}','${l.title}','${l.price}','sell')">${WA_SVG} Chat on WhatsApp</button>
-    ${isOwner ? `<button class="btn-danger" onclick="deleteListing('${l.id}')">🗑 Remove my listing</button>` : ""}`;
+    ${canDelete ? `<button class="btn-danger" onclick="deleteListing('${l.id}')">🗑 Remove listing</button>` : ""}`;
   document.getElementById("detailOverlay").classList.add("open");
 };
 window.closeDetail = () => document.getElementById("detailOverlay").classList.remove("open");
@@ -1064,6 +1073,7 @@ window.closeDetail = () => document.getElementById("detailOverlay").classList.re
 window.openRentDetail = id => {
   const r = window._rentals.find(x => x.id === id); if (!r) return;
   const isOwner = window._currentUser?.uid === r.ownerUid;
+  const canDelete = isOwner || window.isAdmin();
   document.getElementById("rentDetailContent").innerHTML = `
     <div class="detail-img">${r.imageUrl ? `<img src="${r.imageUrl}" alt="${r.title}">` : `<span class="detail-img-emoji">${r.emoji||"📦"}</span>`}</div>
     <h2 style="font-family:Syne,sans-serif;font-weight:800;font-size:22px;margin-bottom:6px">${r.title}</h2>
@@ -1082,7 +1092,7 @@ window.openRentDetail = id => {
         <div style="font-size:12px;color:var(--muted)">Verified IITM · ${r.hostel}</div></div>
     </div>
     <button class="btn-wa-large" onclick="contactWA('${r.phone}','${r.title}','${r.priceDay}','rent')">${WA_SVG} Request to Rent on WhatsApp</button>
-    ${isOwner ? `<button class="btn-danger" onclick="deleteRental('${r.id}')">🗑 Remove my listing</button>` : ""}`;
+    ${canDelete ? `<button class="btn-danger" onclick="deleteRental('${r.id}')">🗑 Remove listing</button>` : ""}`;
   document.getElementById("rentDetailOverlay").classList.add("open");
 };
 window.closeRentDetail = () => document.getElementById("rentDetailOverlay").classList.remove("open");
