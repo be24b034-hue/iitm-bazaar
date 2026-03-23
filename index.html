@@ -8,7 +8,7 @@
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, signOut, onAuthStateChanged }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore, collection, addDoc, deleteDoc, doc, query, orderBy, onSnapshot, serverTimestamp }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
@@ -59,11 +59,13 @@ window.signIn = async () => {
       return;
     }
     const name = (result.user.displayName || email.split("@")[0]).split(" ")[0];
-    window.showToast("✅ Hi " + name + "! Welcome 👋");
+    window.showToast("✅ Successfully logged in!", "success");
   } catch (e) {
+    // User closed popup — do nothing
     if (e.code === "auth/popup-closed-by-user" || e.code === "auth/cancelled-popup-request") return;
+    // Popup failed (blocked by network/browser) — try redirect once
     console.error(e);
-    window.showToast("Login failed. Use mobile data, not insti WiFi!", "error");
+    await signInWithRedirect(auth, provider);
   }
 };
 
@@ -588,7 +590,7 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
   <div class="logo">IITM <span>Bazaar</span><span class="live-dot"></span></div>
   <div class="nav-right">
     <span id="userName" style="display:none"></span>
-    <button class="btn btn-login" id="loginBtn" onclick="signIn()" style="display:none">
+    <button class="btn btn-login" id="loginBtn" onclick="signIn()">
       <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#4285F4" d="M44.5 20H24v8.5h11.8C34.7 33.9 29.9 37 24 37c-7.2 0-13-5.8-13-13s5.8-13 13-13c3.1 0 5.9 1.1 8.1 2.9l6.4-6.4C34.6 4.1 29.6 2 24 2 11.8 2 2 11.8 2 24s9.8 22 22 22c11 0 21-8 21-22 0-1.3-.2-2.7-.5-4z"/></svg>
       Login with IITM
     </button>
@@ -627,7 +629,7 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
 
 <!-- STATS -->
 <div class="stats">
-  <div class="stat"><strong id="statCount">—</strong><span id="statLabel">listings live</span></div>
+  <div class="stat"><strong id="statCount">—</strong>listings live</div>
   <div class="stat"><strong id="statToday">—</strong>posted today</div>
   <div class="stat"><strong>🤖</strong>AI-verified</div>
 </div>
@@ -881,12 +883,9 @@ function timeAgo(ts) {
 // ── STATS ─────────────────────────────────────────────────────────────────────
 function buildStats() {
   const today = Date.now() - 86400000;
-  const tab   = window._activeTab;
-  const items = tab === "sell" ? (window._listings||[]) : tab === "rent" ? (window._rentals||[]) : (window._lf||[]);
-  const labels = { sell: "items for sale", rent: "items for rent", lf: "posts active" };
-  document.getElementById("statCount").textContent = items.length;
-  document.getElementById("statToday").textContent = items.filter(l => (l.createdAt?.toMillis?.() || 0) > today).length;
-  document.getElementById("statLabel").textContent = labels[tab] || "listings live";
+  const all = [...(window._listings||[]), ...(window._rentals||[]), ...(window._lf||[])];
+  document.getElementById("statCount").textContent = all.length;
+  document.getElementById("statToday").textContent = all.filter(l => (l.createdAt?.toMillis?.() || 0) > today).length;
 }
 
 // ── SORT ──────────────────────────────────────────────────────────────────────
