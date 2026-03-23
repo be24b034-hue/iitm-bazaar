@@ -8,7 +8,7 @@
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged }
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore, collection, addDoc, deleteDoc, doc, query, orderBy, onSnapshot, serverTimestamp }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
@@ -53,7 +53,7 @@ const ADMIN_EMAIL = "be24b034@smail.iitm.ac.in";
 window.ADMIN_EMAIL = ADMIN_EMAIL; // expose to regular script
 
 window.signIn = async () => {
-  if (window._currentUser) return; // already logged in — do nothing silently
+  if (window._currentUser) return;
   try {
     const result = await signInWithPopup(auth, provider);
     const email  = result.user.email;
@@ -66,8 +66,7 @@ window.signIn = async () => {
     window.showToast("✅ Hi " + name + "! Welcome 👋");
   } catch (e) {
     if (e.code === "auth/popup-closed-by-user" || e.code === "auth/cancelled-popup-request") return;
-    // popup blocked (IITM wifi) → fall back to redirect
-    try { await signInWithRedirect(auth, provider); } catch(e2) { console.error(e2); }
+    if (!window._currentUser) console.error(e); // only log real errors
   }
 };
 
@@ -75,19 +74,6 @@ window.signOutUser = async () => {
   await signOut(auth);
   window.showToast("👋 Logged out");
 };
-
-// Catches login after redirect (IITM wifi fallback)
-getRedirectResult(auth).then(async result => {
-  if (!result?.user) return;
-  const email = result.user.email;
-  if (!email.endsWith("@smail.iitm.ac.in") && !email.endsWith("@iitm.ac.in")) {
-    await signOut(auth);
-    window.showToast("❌ Only @smail.iitm.ac.in emails allowed!", "error");
-    return;
-  }
-  const name = (result.user.displayName || email.split("@")[0]).split(" ")[0];
-  window.showToast("✅ Hi " + name + "! Welcome 👋");
-}).catch(() => {});
 
 onAuthStateChanged(auth, user => {
   window._currentUser = user;
@@ -649,7 +635,7 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
 
 <!-- STATS -->
 <div class="stats">
-  <div class="stat"><strong id="statCount">—</strong>listings live</div>
+  <div class="stat"><strong id="statCount">—</strong><span id="statLabel">listings live</span></div>
   <div class="stat"><strong id="statToday">—</strong>posted today</div>
   <div class="stat"><strong>🤖</strong>AI-verified</div>
 </div>
@@ -882,6 +868,9 @@ window.switchTab = tab => {
   };
   document.getElementById("heroTitle").innerHTML = titles[tab];
   document.getElementById("heroSub").textContent = subs[tab];
+  // Update stat label per tab
+  const statLabels = { sell: "items for sale", rent: "items for rent", lf: "posts active" };
+  document.getElementById("statLabel").textContent = statLabels[tab];
   // hide sort for LF (not price-based)
   document.getElementById("sortSelect").style.display = tab === "lf" ? "none" : "";
   buildChips();
@@ -903,9 +892,13 @@ function timeAgo(ts) {
 // ── STATS ─────────────────────────────────────────────────────────────────────
 function buildStats() {
   const today = Date.now() - 86400000;
-  const all = [...(window._listings||[]), ...(window._rentals||[]), ...(window._lf||[])];
-  document.getElementById("statCount").textContent = all.length;
-  document.getElementById("statToday").textContent = all.filter(l => (l.createdAt?.toMillis?.() || 0) > today).length;
+  const tab   = window._activeTab;
+  let items = [];
+  if (tab === "sell")  items = window._listings || [];
+  else if (tab === "rent") items = window._rentals  || [];
+  else                 items = window._lf       || [];
+  document.getElementById("statCount").textContent = items.length;
+  document.getElementById("statToday").textContent = items.filter(l => (l.createdAt?.toMillis?.() || 0) > today).length;
 }
 
 // ── SORT ──────────────────────────────────────────────────────────────────────
